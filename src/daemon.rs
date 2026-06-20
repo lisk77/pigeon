@@ -26,6 +26,10 @@ impl Pigeon {
             event_proxy,
         }
     }
+
+    pub fn notifications(&self) -> Arc<Mutex<HashMap<u32, Arc<Notification>>>> {
+        Arc::clone(&self.notifications)
+    }
 }
 
 #[zbus::interface(name = "org.freedesktop.Notifications")]
@@ -39,6 +43,10 @@ impl Pigeon {
         )
     }
 
+    async fn get_capabilities(&self) -> Vec<String> {
+        vec!["actions".to_string()]
+    }
+
     async fn notify(
         &self,
         app_name: String,
@@ -46,7 +54,7 @@ impl Pigeon {
         app_icon: String,
         summary: String,
         body: String,
-        _actions: Vec<String>,
+        actions: Vec<String>,
         hints: HashMap<String, OwnedValue>,
         expire_timeout: i32,
         #[zbus(signal_emitter)] emitter: SignalEmitter<'_>,
@@ -56,6 +64,11 @@ impl Pigeon {
         } else {
             self.next_id.fetch_add(1, Ordering::Relaxed)
         };
+
+        let actions: HashMap<String, String> = actions
+            .chunks_exact(2)
+            .map(|pair| (pair[0].clone(), pair[1].clone()))
+            .collect();
 
         let img = decode_notification_image(&hints, &app_icon);
 
@@ -67,12 +80,14 @@ impl Pigeon {
             summary,
             body,
             img,
+            actions,
         });
 
         println!("\nNotification from {}", notification.app_name);
         println!("{}", notification.summary);
         println!("{}", notification.body);
         println!("{}", notification.app_icon);
+        println!("actions: {:?}", notification.actions);
 
         self.notifications
             .lock()

@@ -216,12 +216,13 @@ impl PointerHandler for Popup {
                 continue;
             }
 
-            if let Some((id, _)) = self.surfaces.iter().find(|(_, surfaces)| {
+            if let Some((id, _)) = self.surfaces.iter().find_map(|(id, surfaces)| {
                 surfaces
                     .iter()
-                    .any(|surface| surface.layer.wl_surface() == &event.surface)
+                    .find(|surface| surface.layer.wl_surface() == &event.surface)
+                    .map(|surface| (*id, surface))
             }) {
-                let _ = self.dismiss_sender.send(*id);
+                let _ = self.dismiss_sender.send(id);
             }
         }
     }

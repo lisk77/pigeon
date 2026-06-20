@@ -1,4 +1,5 @@
 use crate::images::Image;
+use std::collections::HashMap;
 
 #[derive(Clone)]
 pub struct Notification {
@@ -9,4 +10,5 @@ pub struct Notification {
     pub summary: String,
     pub body: String,
     pub img: Option<Image>,
+    pub actions: HashMap<String, String>,
 }
