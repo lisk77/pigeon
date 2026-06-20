@@ -1,7 +1,7 @@
 use crate::{
     images::{Image, decode_notification_image},
     notification::Notification,
-    popup::events::PopupEvent,
+    popup::events::{PopupEvent, PopupSender},
 };
 use std::{
     collections::HashMap,
@@ -10,18 +10,17 @@ use std::{
         atomic::{AtomicU32, Ordering},
     },
 };
-use winit::event_loop::EventLoopProxy;
 use zbus::{object_server::SignalEmitter, zvariant::OwnedValue};
 
 pub struct Pigeon {
     next_id: AtomicU32,
     notifications: Mutex<HashMap<u32, Arc<Notification>>>,
     images: Mutex<HashMap<u32, Image>>,
-    event_proxy: EventLoopProxy<PopupEvent>,
+    event_proxy: PopupSender,
 }
 
 impl Pigeon {
-    pub fn new(event_proxy: EventLoopProxy<PopupEvent>) -> Self {
+    pub fn new(event_proxy: PopupSender) -> Self {
         Self {
             next_id: AtomicU32::new(1),
             notifications: Mutex::new(HashMap::new()),
@@ -83,7 +82,7 @@ impl Pigeon {
             .unwrap()
             .insert(id, notification.clone());
 
-        let _ = self.event_proxy.send_event(PopupEvent::Show(notification));
+        let _ = self.event_proxy.send(PopupEvent::Show(notification));
 
         id
     }
@@ -95,7 +94,7 @@ impl Pigeon {
     ) -> zbus::fdo::Result<()> {
         let removed = self.notifications.lock().unwrap().remove(&id);
 
-        let _ = self.event_proxy.send_event(PopupEvent::Close(id));
+        let _ = self.event_proxy.send(PopupEvent::Close(id));
 
         if removed.is_some() {
             Self::notification_closed(&emitter, id, 3).await?;
