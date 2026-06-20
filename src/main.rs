@@ -1,11 +1,8 @@
-use pigeond::{
-    daemon::Pigeon,
-    popup::{Popup, events},
-};
+use pigeond::{daemon::Pigeon, popup::{self, Popup}};
 use zbus::connection::Builder;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let (event_proxy, event_source) = events::channel();
+    let (event_proxy, event_source) = popup::channel();
     let runtime = tokio::runtime::Runtime::new()?;
 
     let connection = runtime.block_on(async {

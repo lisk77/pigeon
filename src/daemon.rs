@@ -1,7 +1,7 @@
 use crate::{
     images::{Image, decode_notification_image},
     notification::Notification,
-    popup::events::{PopupEvent, PopupSender},
+    popup::{PopupEvent, PopupSender},
 };
 use std::{
     collections::HashMap,
