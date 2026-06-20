@@ -5,8 +5,10 @@ use crate::{images::Image, notification::Notification};
 pub const CARD_WIDTH: u32 = 360;
 pub const CARD_HEIGHT: u32 = 160;
 
-const PADDING_X: i32 = 96;
-const SUMMARY_Y: i32 = 18;
+const PADDING: i32 = 16;
+const THUMBNAIL_SIZE: u32 = 64;
+const THUMBNAIL_GAP: i32 = 16;
+const SUMMARY_Y: i32 = PADDING;
 const BODY_Y: i32 = 48;
 const SUMMARY_SIZE: f32 = 18.0;
 const BODY_SIZE: f32 = 14.0;
@@ -37,9 +39,22 @@ pub fn render_card(
         pixel.copy_from_slice(&BACKGROUND);
     }
 
-    if let Some(img) = &notification.img {
-        draw_thumbnail(canvas, width, height, img, 16, 16, 64, 64);
-    }
+    let text_x = if let Some(img) = &notification.img {
+        draw_thumbnail(
+            canvas,
+            width,
+            height,
+            img,
+            PADDING as u32,
+            PADDING as u32,
+            THUMBNAIL_SIZE,
+            THUMBNAIL_SIZE,
+        );
+        PADDING + THUMBNAIL_SIZE as i32 + THUMBNAIL_GAP
+    } else {
+        PADDING
+    };
+    let text_width = (width as i32 - text_x - PADDING).max(0);
 
     draw_text(
         canvas,
@@ -47,8 +62,10 @@ pub fn render_card(
         height,
         fonts,
         &notification.summary,
-        PADDING_X,
+        text_x,
         SUMMARY_Y,
+        text_width,
+        (height as i32 - SUMMARY_Y - PADDING).max(0),
         SUMMARY_SIZE,
         true,
     );
@@ -59,8 +76,10 @@ pub fn render_card(
         height,
         fonts,
         &notification.body,
-        PADDING_X,
+        text_x,
         BODY_Y,
+        text_width,
+        (height as i32 - BODY_Y - PADDING).max(0),
         BODY_SIZE,
         false,
     );
@@ -74,6 +93,8 @@ fn draw_text(
     text: &str,
     x_offset: i32,
     y_offset: i32,
+    text_width: i32,
+    text_height: i32,
     font_size: f32,
     bold: bool,
 ) {
@@ -83,11 +104,8 @@ fn draw_text(
     } = fonts;
 
     let mut text_buffer = Buffer::new(font_system, Metrics::new(font_size, font_size * 1.3));
-    text_buffer.set_size(
-        Some((canvas_width as i32 - x_offset * 2) as f32),
-        Some((canvas_height as i32 - y_offset) as f32),
-    );
-    text_buffer.set_wrap(Wrap::Word);
+    text_buffer.set_size(Some(text_width as f32), Some(text_height as f32));
+    text_buffer.set_wrap(Wrap::WordOrGlyph);
 
     let attrs = if bold {
         Attrs::new().weight(Weight::BOLD)

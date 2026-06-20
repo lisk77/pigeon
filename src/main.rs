@@ -1,4 +1,7 @@
-use pigeond::{daemon::Pigeon, popup::{self, Popup}};
+use pigeond::{
+    daemon::Pigeon,
+    popup::{self, Popup},
+};
 use zbus::connection::Builder;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
