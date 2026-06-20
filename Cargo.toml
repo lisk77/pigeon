@@ -7,3 +7,4 @@ edition = "2024"
 image = { version = "0.25", default-features = false, features = ["bmp", "gif", "ico", "jpeg", "png", "webp"] }
 zbus = { version = "5", features = ["tokio"] }
 tokio = { version = "1", features = ["macros", "rt-multi-thread", "sync"] }
+winit = "0.30.13"

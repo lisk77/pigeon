@@ -1,23 +1,32 @@
-use crate::{images::decode_notification_image, notification::Notification};
+use crate::{
+    images::{Image, decode_notification_image},
+    notification::Notification,
+    popup::events::PopupEvent,
+};
 use std::{
     collections::HashMap,
     sync::{
-        Mutex,
+        Arc, Mutex,
         atomic::{AtomicU32, Ordering},
     },
 };
+use winit::event_loop::EventLoopProxy;
 use zbus::{object_server::SignalEmitter, zvariant::OwnedValue};
 
 pub struct Pigeon {
     next_id: AtomicU32,
-    notifications: Mutex<HashMap<u32, Notification>>,
+    notifications: Mutex<HashMap<u32, Arc<Notification>>>,
+    images: Mutex<HashMap<u32, Image>>,
+    event_proxy: EventLoopProxy<PopupEvent>,
 }
 
 impl Pigeon {
-    pub fn new() -> Self {
+    pub fn new(event_proxy: EventLoopProxy<PopupEvent>) -> Self {
         Self {
             next_id: AtomicU32::new(1),
             notifications: Mutex::new(HashMap::new()),
+            images: Mutex::new(HashMap::new()),
+            event_proxy,
         }
     }
 }
@@ -40,9 +49,9 @@ impl Pigeon {
         app_icon: String,
         summary: String,
         body: String,
-        actions: Vec<String>,
+        _actions: Vec<String>,
         hints: HashMap<String, OwnedValue>,
-        expire_timeout: i32,
+        _expire_timeout: i32,
     ) -> u32 {
         let id = if replaces_id != 0 {
             replaces_id
@@ -50,25 +59,31 @@ impl Pigeon {
             self.next_id.fetch_add(1, Ordering::Relaxed)
         };
 
-        let img = decode_notification_image(&hints, &app_icon);
-        let notification = Notification {
+        match decode_notification_image(&hints, &app_icon) {
+            Some(img) => {
+                self.images.lock().unwrap().insert(id, img);
+            }
+            None => {}
+        }
+        let notification = Arc::new(Notification {
             id,
             replaces_id,
             app_name,
             app_icon,
             summary,
             body,
-            img,
-        };
+        });
 
         println!("\nNotification from {}", notification.app_name);
         println!("{}", notification.summary);
         println!("{}", notification.body);
-        if let Some((width, height)) = notification.img.as_ref().map(|image| image.dimensions()) {
-            println!("image: {width}×{height}");
-        }
 
-        self.notifications.lock().unwrap().insert(id, notification);
+        self.notifications
+            .lock()
+            .unwrap()
+            .insert(id, notification.clone());
+
+        let _ = self.event_proxy.send_event(PopupEvent::Show(notification));
 
         id
     }
@@ -79,6 +94,8 @@ impl Pigeon {
         #[zbus(signal_emitter)] emitter: SignalEmitter<'_>,
     ) -> zbus::fdo::Result<()> {
         let removed = self.notifications.lock().unwrap().remove(&id);
+
+        let _ = self.event_proxy.send_event(PopupEvent::Close(id));
 
         if removed.is_some() {
             Self::notification_closed(&emitter, id, 3).await?;
