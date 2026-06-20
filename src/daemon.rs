@@ -72,6 +72,7 @@ impl Pigeon {
         println!("\nNotification from {}", notification.app_name);
         println!("{}", notification.summary);
         println!("{}", notification.body);
+        println!("{}", notification.app_icon);
 
         self.notifications
             .lock()

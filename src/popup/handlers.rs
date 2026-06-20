@@ -1,14 +1,22 @@
 use smithay_client_toolkit::{
     compositor::CompositorHandler,
-    delegate_compositor, delegate_layer, delegate_output, delegate_registry, delegate_shm,
+    delegate_compositor, delegate_layer, delegate_output, delegate_pointer, delegate_registry,
+    delegate_seat, delegate_shm,
     output::{OutputHandler, OutputState},
     reexports::client::{
         Connection, QueueHandle,
-        protocol::{wl_output, wl_surface},
+        protocol::{wl_output, wl_seat, wl_surface},
     },
     registry::{ProvidesRegistryState, RegistryState},
     registry_handlers,
-    shell::wlr_layer::{LayerShellHandler, LayerSurface, LayerSurfaceConfigure},
+    seat::{
+        Capability, SeatHandler, SeatState,
+        pointer::{PointerEvent, PointerEventKind, PointerHandler},
+    },
+    shell::{
+        WaylandSurface,
+        wlr_layer::{LayerShellHandler, LayerSurface, LayerSurfaceConfigure},
+    },
     shm::{Shm, ShmHandler},
 };
 
@@ -161,16 +169,76 @@ impl OutputHandler for Popup {
     }
 }
 
+impl SeatHandler for Popup {
+    fn seat_state(&mut self) -> &mut SeatState {
+        &mut self.seat_state
+    }
+
+    fn new_seat(&mut self, _: &Connection, _: &QueueHandle<Self>, _: wl_seat::WlSeat) {}
+
+    fn new_capability(
+        &mut self,
+        _: &Connection,
+        qh: &QueueHandle<Self>,
+        seat: wl_seat::WlSeat,
+        capability: Capability,
+    ) {
+        if capability == Capability::Pointer && self.pointer.is_none() {
+            self.pointer = self.seat_state.get_pointer(qh, &seat).ok();
+        }
+    }
+
+    fn remove_capability(
+        &mut self,
+        _: &Connection,
+        _: &QueueHandle<Self>,
+        _: wl_seat::WlSeat,
+        capability: Capability,
+    ) {
+        if capability == Capability::Pointer {
+            self.pointer.take();
+        }
+    }
+
+    fn remove_seat(&mut self, _: &Connection, _: &QueueHandle<Self>, _: wl_seat::WlSeat) {}
+}
+
+impl PointerHandler for Popup {
+    fn pointer_frame(
+        &mut self,
+        _: &Connection,
+        _: &QueueHandle<Self>,
+        _: &smithay_client_toolkit::reexports::client::protocol::wl_pointer::WlPointer,
+        events: &[PointerEvent],
+    ) {
+        for event in events {
+            if !matches!(event.kind, PointerEventKind::Press { .. }) {
+                continue;
+            }
+
+            if let Some((id, _)) = self.surfaces.iter().find(|(_, surfaces)| {
+                surfaces
+                    .iter()
+                    .any(|surface| surface.layer.wl_surface() == &event.surface)
+            }) {
+                let _ = self.dismiss_sender.send(*id);
+            }
+        }
+    }
+}
+
 impl ProvidesRegistryState for Popup {
     fn registry(&mut self) -> &mut RegistryState {
         &mut self.registry_state
     }
 
-    registry_handlers![OutputState];
+    registry_handlers![OutputState, SeatState];
 }
 
 delegate_compositor!(Popup);
 delegate_output!(Popup);
+delegate_seat!(Popup);
+delegate_pointer!(Popup);
 delegate_shm!(Popup);
 delegate_layer!(Popup);
 delegate_registry!(Popup);

@@ -12,16 +12,19 @@ use render::{CARD_HEIGHT, CARD_WIDTH, FontCtx};
 use smithay_client_toolkit::{
     compositor::CompositorState,
     output::OutputState,
+    reexports::client::protocol::wl_pointer,
     reexports::{
         calloop::{EventLoop, channel::Event as ChannelEvent},
         calloop_wayland_source::WaylandSource,
         client::{Connection, QueueHandle, globals::registry_queue_init},
     },
     registry::RegistryState,
+    seat::SeatState,
     shell::{WaylandSurface, wlr_layer::LayerShell},
     shm::{Shm, slot::SlotPool},
 };
 use surface::NotificationSurface;
+use tokio::sync::mpsc::UnboundedSender;
 
 use crate::notification::Notification;
 
@@ -34,10 +37,16 @@ pub struct Popup {
     pub(in crate::popup) pool: SlotPool,
     pub(in crate::popup) surfaces: BTreeMap<u32, Vec<NotificationSurface>>,
     pub(in crate::popup) fonts: FontCtx,
+    pub(in crate::popup) seat_state: SeatState,
+    pub(in crate::popup) pointer: Option<wl_pointer::WlPointer>,
+    pub(in crate::popup) dismiss_sender: UnboundedSender<u32>,
 }
 
 impl Popup {
-    pub fn run(events: PopupReceiver) -> Result<(), Box<dyn std::error::Error>> {
+    pub fn run(
+        events: PopupReceiver,
+        dismiss_sender: UnboundedSender<u32>,
+    ) -> Result<(), Box<dyn std::error::Error>> {
         let connection = Connection::connect_to_env()?;
         let (globals, event_queue) = registry_queue_init(&connection)?;
         let qh = event_queue.handle();
@@ -60,6 +69,9 @@ impl Popup {
             pool,
             surfaces: BTreeMap::new(),
             fonts: FontCtx::new(),
+            seat_state: SeatState::new(&globals, &qh),
+            pointer: None,
+            dismiss_sender,
         };
 
         let commands_qh = qh.clone();
