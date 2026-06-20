@@ -9,9 +9,11 @@ const PADDING: i32 = 16;
 const THUMBNAIL_SIZE: u32 = 64;
 const THUMBNAIL_GAP: i32 = 16;
 const SUMMARY_Y: i32 = PADDING;
-const BODY_Y: i32 = 48;
 const SUMMARY_SIZE: f32 = 18.0;
 const BODY_SIZE: f32 = 14.0;
+const TEXT_GAP: f32 = 8.0;
+const MIN_CARD_HEIGHT: u32 = 96;
+const MAX_CARD_HEIGHT: u32 = 480;
 const BACKGROUND: [u8; 4] = [0x20, 0x20, 0x20, 0xff];
 
 pub struct FontCtx {
@@ -55,6 +57,9 @@ pub fn render_card(
         PADDING
     };
     let text_width = (width as i32 - text_x - PADDING).max(0);
+    let summary_height =
+        measure_text_height(fonts, &notification.summary, text_width, SUMMARY_SIZE, true);
+    let body_y = SUMMARY_Y as f32 + summary_height + TEXT_GAP;
 
     draw_text(
         canvas,
@@ -65,7 +70,7 @@ pub fn render_card(
         text_x,
         SUMMARY_Y,
         text_width,
-        (height as i32 - SUMMARY_Y - PADDING).max(0),
+        summary_height.ceil() as i32,
         SUMMARY_SIZE,
         true,
     );
@@ -77,9 +82,9 @@ pub fn render_card(
         fonts,
         &notification.body,
         text_x,
-        BODY_Y,
+        body_y.ceil() as i32,
         text_width,
-        (height as i32 - BODY_Y - PADDING).max(0),
+        (height as i32 - body_y.ceil() as i32 - PADDING).max(0),
         BODY_SIZE,
         false,
     );
@@ -191,4 +196,51 @@ fn draw_thumbnail(
 
         canvas[index + 3] = 0xFF;
     }
+}
+
+pub fn measure_card_height(notification: &Notification, width: u32, fonts: &mut FontCtx) -> u32 {
+    let text_x = if notification.img.is_some() {
+        PADDING + THUMBNAIL_SIZE as i32 + THUMBNAIL_GAP
+    } else {
+        PADDING
+    };
+    let text_width = (width as i32 - text_x - PADDING).max(0);
+    let summary_height =
+        measure_text_height(fonts, &notification.summary, text_width, SUMMARY_SIZE, true);
+    let body_height = measure_text_height(fonts, &notification.body, text_width, BODY_SIZE, false);
+    let text_stack_height = summary_height + TEXT_GAP + body_height;
+    let content_height = if notification.img.is_some() {
+        (THUMBNAIL_SIZE as f32).max(text_stack_height)
+    } else {
+        text_stack_height
+    };
+
+    (((PADDING * 2) as f32 + content_height).ceil() as u32).clamp(MIN_CARD_HEIGHT, MAX_CARD_HEIGHT)
+}
+
+fn measure_text_height(
+    fonts: &mut FontCtx,
+    text: &str,
+    width: i32,
+    font_size: f32,
+    bold: bool,
+) -> f32 {
+    let FontCtx { font_system, .. } = fonts;
+    let mut text_buffer = Buffer::new(font_system, Metrics::new(font_size, font_size * 1.3));
+    text_buffer.set_size(Some(width as f32), None);
+    text_buffer.set_wrap(Wrap::WordOrGlyph);
+
+    let attrs = if bold {
+        Attrs::new().weight(Weight::BOLD)
+    } else {
+        Attrs::new()
+    };
+    text_buffer.set_text(text, &attrs, Shaping::Advanced, None);
+    text_buffer.shape_until_scroll(font_system, false);
+
+    text_buffer
+        .layout_runs()
+        .map(|run| run.line_top + run.line_height)
+        .last()
+        .unwrap_or(0.0)
 }

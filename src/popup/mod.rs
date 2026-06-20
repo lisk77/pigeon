@@ -18,7 +18,7 @@ use smithay_client_toolkit::{
         client::{Connection, QueueHandle, globals::registry_queue_init},
     },
     registry::RegistryState,
-    shell::wlr_layer::LayerShell,
+    shell::{WaylandSurface, wlr_layer::LayerShell},
     shm::{Shm, slot::SlotPool},
 };
 use surface::NotificationSurface;
@@ -83,12 +83,17 @@ impl Popup {
 
     fn show(&mut self, qh: &QueueHandle<Self>, notification: Arc<Notification>) {
         let id = notification.id;
+        let height = render::measure_card_height(&notification, CARD_WIDTH, &mut self.fonts);
 
         if let Some(surfaces) = self.surfaces.get_mut(&id) {
             for surface in surfaces.iter_mut() {
                 surface.notification = notification.clone();
-                surface.draw(&mut self.pool, &mut self.fonts);
+                surface.height = height;
+                surface.configured = false;
+                surface.layer.set_size(surface.width, height);
+                surface.layer.commit();
             }
+            surface::restack(&self.surfaces);
             return;
         }
 
@@ -102,6 +107,8 @@ impl Popup {
                     &self.layer_shell,
                     notification.clone(),
                     output,
+                    CARD_WIDTH,
+                    height,
                 )
             })
             .collect();

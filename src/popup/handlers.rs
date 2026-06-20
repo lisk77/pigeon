@@ -77,7 +77,7 @@ impl LayerShellHandler for Popup {
         _: &Connection,
         _: &QueueHandle<Self>,
         layer: &LayerSurface,
-        _: LayerSurfaceConfigure,
+        configure: LayerSurfaceConfigure,
         _: u32,
     ) {
         if let Some((id, output_index)) = self.surfaces.iter().find_map(|(id, surfaces)| {
@@ -87,6 +87,12 @@ impl LayerShellHandler for Popup {
                 .map(|output_index| (*id, output_index))
         }) {
             let surface = &mut self.surfaces.get_mut(&id).unwrap()[output_index];
+            if configure.new_size.0 != 0 {
+                surface.width = configure.new_size.0;
+            }
+            if configure.new_size.1 != 0 {
+                surface.height = configure.new_size.1;
+            }
             surface.configured = true;
             surface.draw(&mut self.pool, &mut self.fonts);
         }
@@ -112,20 +118,27 @@ impl OutputHandler for Popup {
                 if surfaces.iter().any(|surface| surface.output == output) {
                     None
                 } else {
-                    surfaces
-                        .first()
-                        .map(|surface| (*id, surface.notification.clone()))
+                    surfaces.first().map(|surface| {
+                        (
+                            *id,
+                            surface.notification.clone(),
+                            surface.width,
+                            surface.height,
+                        )
+                    })
                 }
             })
             .collect::<Vec<_>>();
 
-        for (id, notification) in missing {
+        for (id, notification, width, height) in missing {
             let surface = NotificationSurface::new(
                 qh,
                 &self.compositor,
                 &self.layer_shell,
                 notification,
                 output.clone(),
+                width,
+                height,
             );
             self.surfaces.get_mut(&id).unwrap().push(surface);
         }
