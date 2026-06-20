@@ -4,6 +4,6 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
-image = { version = "0.25", default-features = false }
+image = { version = "0.25", default-features = false, features = ["bmp", "gif", "ico", "jpeg", "png", "webp"] }
 zbus = { version = "5", features = ["tokio"] }
 tokio = { version = "1", features = ["macros", "rt-multi-thread", "sync"] }

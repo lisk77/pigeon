@@ -1,4 +1,5 @@
 mod daemon;
+mod images;
 mod notification;
 
 use daemon::Pigeon;

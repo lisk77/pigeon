@@ -1,4 +1,4 @@
-use crate::notification::Notification;
+use crate::{images::decode_notification_image, notification::Notification};
 use std::{
     collections::HashMap,
     sync::{
@@ -50,17 +50,23 @@ impl Pigeon {
             self.next_id.fetch_add(1, Ordering::Relaxed)
         };
 
+        let img = decode_notification_image(&hints, &app_icon);
         let notification = Notification {
             id,
             replaces_id,
             app_name,
+            app_icon,
             summary,
             body,
+            img,
         };
 
         println!("\nNotification from {}", notification.app_name);
         println!("{}", notification.summary);
         println!("{}", notification.body);
+        if let Some((width, height)) = notification.img.as_ref().map(|image| image.dimensions()) {
+            println!("image: {width}×{height}");
+        }
 
         self.notifications.lock().unwrap().insert(id, notification);
 
