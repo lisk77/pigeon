@@ -1,4 +1,5 @@
 pub mod events;
+pub mod render;
 
 use std::collections::BTreeMap;
 
@@ -48,10 +49,12 @@ pub struct Popup {
     shm: Shm,
     pool: SlotPool,
     surfaces: BTreeMap<u32, Vec<NotificationSurface>>,
+    font_system: cosmic_text::FontSystem,
+    swash_cache: cosmic_text::SwashCache,
 }
 
 struct NotificationSurface {
-    notification: Arc<Notification>,
+    pub notification: Arc<Notification>,
     output: wl_output::WlOutput,
     layer: LayerSurface,
     configured: bool,
@@ -81,6 +84,8 @@ impl Popup {
             shm,
             pool,
             surfaces: BTreeMap::new(),
+            font_system: cosmic_text::FontSystem::new(),
+            swash_cache: cosmic_text::SwashCache::new(),
         };
 
         let commands_qh = qh.clone();
@@ -192,6 +197,39 @@ impl Popup {
             .expect("allocate notification buffer");
         for pixel in canvas.chunks_exact_mut(4) {
             pixel.copy_from_slice(&[0x20, 0x20, 0x20, 0xff]);
+        }
+
+        if let Some(notification) = self
+            .surfaces
+            .get(&id)
+            .and_then(|surfaces| surfaces.get(output_index))
+            .map(|surface| Arc::clone(&surface.notification))
+        {
+            Self::draw_text(
+                canvas,
+                CARD_WIDTH,
+                CARD_HEIGHT,
+                &mut self.font_system,
+                &mut self.swash_cache,
+                &notification.summary,
+                16,
+                18,
+                18.0,
+                true,
+            );
+
+            Self::draw_text(
+                canvas,
+                CARD_WIDTH,
+                CARD_HEIGHT,
+                &mut self.font_system,
+                &mut self.swash_cache,
+                &notification.body,
+                16,
+                48,
+                14.0,
+                false,
+            );
         }
 
         layer
