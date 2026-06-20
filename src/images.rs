@@ -6,6 +6,7 @@ use zbus::zvariant::OwnedValue;
 const MAX_IMAGE_DIMENSION: u32 = 4096;
 const MAX_IMAGE_BYTES: u64 = 64 * 1024 * 1024;
 
+#[derive(Clone)]
 pub struct Image(DynamicImage);
 
 impl Image {

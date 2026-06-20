@@ -1,5 +1,5 @@
 use crate::{
-    images::{Image, decode_notification_image},
+    images::decode_notification_image,
     notification::Notification,
     popup::{PopupEvent, PopupSender},
 };
@@ -15,7 +15,6 @@ use zbus::{object_server::SignalEmitter, zvariant::OwnedValue};
 pub struct Pigeon {
     next_id: AtomicU32,
     notifications: Arc<Mutex<HashMap<u32, Arc<Notification>>>>,
-    images: Arc<Mutex<HashMap<u32, Image>>>,
     event_proxy: PopupSender,
 }
 
@@ -24,7 +23,6 @@ impl Pigeon {
         Self {
             next_id: AtomicU32::new(1),
             notifications: Arc::new(Mutex::new(HashMap::new())),
-            images: Arc::new(Mutex::new(HashMap::new())),
             event_proxy,
         }
     }
@@ -59,12 +57,8 @@ impl Pigeon {
             self.next_id.fetch_add(1, Ordering::Relaxed)
         };
 
-        match decode_notification_image(&hints, &app_icon) {
-            Some(img) => {
-                self.images.lock().unwrap().insert(id, img);
-            }
-            None => {}
-        }
+        let img = decode_notification_image(&hints, &app_icon);
+
         let notification = Arc::new(Notification {
             id,
             replaces_id,
@@ -72,6 +66,7 @@ impl Pigeon {
             app_icon,
             summary,
             body,
+            img,
         });
 
         println!("\nNotification from {}", notification.app_name);
@@ -94,7 +89,6 @@ impl Pigeon {
 
         if let Some(timeout) = timeout {
             let notifications = Arc::clone(&self.notifications);
-            let images = Arc::clone(&self.images);
             let event_proxy = self.event_proxy.clone();
             let emitter = emitter.to_owned();
             let timer_notification = Arc::clone(&notification);
@@ -115,7 +109,6 @@ impl Pigeon {
                 };
 
                 if expired {
-                    images.lock().unwrap().remove(&id);
                     let _ = event_proxy.send(PopupEvent::Close(id));
                     let _ = Self::notification_closed(&emitter, id, 1).await;
                 }

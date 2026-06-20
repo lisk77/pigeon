@@ -1,11 +1,11 @@
 use cosmic_text::{Attrs, Buffer, Color, FontSystem, Metrics, Shaping, SwashCache, Weight, Wrap};
 
-use crate::notification::Notification;
+use crate::{images::Image, notification::Notification};
 
 pub const CARD_WIDTH: u32 = 360;
 pub const CARD_HEIGHT: u32 = 160;
 
-const PADDING_X: i32 = 16;
+const PADDING_X: i32 = 96;
 const SUMMARY_Y: i32 = 18;
 const BODY_Y: i32 = 48;
 const SUMMARY_SIZE: f32 = 18.0;
@@ -26,9 +26,19 @@ impl FontCtx {
     }
 }
 
-pub fn render_card(canvas: &mut [u8], width: u32, height: u32, notification: &Notification, fonts: &mut FontCtx) {
+pub fn render_card(
+    canvas: &mut [u8],
+    width: u32,
+    height: u32,
+    notification: &Notification,
+    fonts: &mut FontCtx,
+) {
     for pixel in canvas.chunks_exact_mut(4) {
         pixel.copy_from_slice(&BACKGROUND);
+    }
+
+    if let Some(img) = &notification.img {
+        draw_thumbnail(canvas, width, height, img, 16, 16, 64, 64);
     }
 
     draw_text(
@@ -67,7 +77,10 @@ fn draw_text(
     font_size: f32,
     bold: bool,
 ) {
-    let FontCtx { font_system, swash_cache } = fonts;
+    let FontCtx {
+        font_system,
+        swash_cache,
+    } = fonts;
 
     let mut text_buffer = Buffer::new(font_system, Metrics::new(font_size, font_size * 1.3));
     text_buffer.set_size(
@@ -118,4 +131,46 @@ fn draw_text(
             }
         },
     );
+}
+
+fn draw_thumbnail(
+    canvas: &mut [u8],
+    canvas_width: u32,
+    canvas_height: u32,
+    image: &Image,
+    box_x: u32,
+    box_y: u32,
+    box_width: u32,
+    box_height: u32,
+) {
+    let thumbnail = image.inner().thumbnail(box_width, box_height).to_rgba8();
+
+    let draw_x = box_x + (box_width - thumbnail.width()) / 2;
+    let draw_y = box_y + (box_height - thumbnail.height()) / 2;
+
+    for (x, y, pixel) in thumbnail.enumerate_pixels() {
+        let target_x = draw_x + x;
+        let target_y = draw_y + y;
+
+        if target_x >= canvas_width || target_y >= canvas_height {
+            continue;
+        }
+
+        let [red, green, blue, alpha] = pixel.0;
+        let index = ((target_y * canvas_width + target_x) * 4) as usize;
+
+        let alpha = u16::from(alpha);
+        let inverse_alpha = 255 - alpha;
+
+        canvas[index] =
+            ((u16::from(blue) * alpha + u16::from(canvas[index]) * inverse_alpha) / 255) as u8;
+
+        canvas[index + 1] =
+            ((u16::from(green) * alpha + u16::from(canvas[index + 1]) * inverse_alpha) / 255) as u8;
+
+        canvas[index + 2] =
+            ((u16::from(red) * alpha + u16::from(canvas[index + 2]) * inverse_alpha) / 255) as u8;
+
+        canvas[index + 3] = 0xFF;
+    }
 }
