@@ -14,8 +14,8 @@ use zbus::{object_server::SignalEmitter, zvariant::OwnedValue};
 
 pub struct Pigeon {
     next_id: AtomicU32,
-    notifications: Mutex<HashMap<u32, Arc<Notification>>>,
-    images: Mutex<HashMap<u32, Image>>,
+    notifications: Arc<Mutex<HashMap<u32, Arc<Notification>>>>,
+    images: Arc<Mutex<HashMap<u32, Image>>>,
     event_proxy: PopupSender,
 }
 
@@ -23,8 +23,8 @@ impl Pigeon {
     pub fn new(event_proxy: PopupSender) -> Self {
         Self {
             next_id: AtomicU32::new(1),
-            notifications: Mutex::new(HashMap::new()),
-            images: Mutex::new(HashMap::new()),
+            notifications: Arc::new(Mutex::new(HashMap::new())),
+            images: Arc::new(Mutex::new(HashMap::new())),
             event_proxy,
         }
     }
@@ -50,7 +50,8 @@ impl Pigeon {
         body: String,
         _actions: Vec<String>,
         hints: HashMap<String, OwnedValue>,
-        _expire_timeout: i32,
+        expire_timeout: i32,
+        #[zbus(signal_emitter)] emitter: SignalEmitter<'_>,
     ) -> u32 {
         let id = if replaces_id != 0 {
             replaces_id
@@ -81,6 +82,45 @@ impl Pigeon {
             .lock()
             .unwrap()
             .insert(id, notification.clone());
+
+        let timeout = match expire_timeout {
+            0 => None,
+            -1 => Some(std::time::Duration::from_millis(5000)),
+            milliseconds if milliseconds > 0 => {
+                Some(std::time::Duration::from_millis(milliseconds as u64))
+            }
+            _ => None,
+        };
+
+        if let Some(timeout) = timeout {
+            let notifications = Arc::clone(&self.notifications);
+            let images = Arc::clone(&self.images);
+            let event_proxy = self.event_proxy.clone();
+            let emitter = emitter.to_owned();
+            let timer_notification = Arc::clone(&notification);
+
+            tokio::spawn(async move {
+                tokio::time::sleep(timeout).await;
+
+                let expired = {
+                    let mut notifications = notifications.lock().unwrap();
+
+                    match notifications.get(&id) {
+                        Some(current) if Arc::ptr_eq(current, &timer_notification) => {
+                            notifications.remove(&id);
+                            true
+                        }
+                        _ => false,
+                    }
+                };
+
+                if expired {
+                    images.lock().unwrap().remove(&id);
+                    let _ = event_proxy.send(PopupEvent::Close(id));
+                    let _ = Self::notification_closed(&emitter, id, 1).await;
+                }
+            });
+        }
 
         let _ = self.event_proxy.send(PopupEvent::Show(notification));
 
