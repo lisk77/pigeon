@@ -1,4 +1,5 @@
 mod daemon;
+mod notification;
 
 use daemon::Pigeon;
 use zbus::connection::Builder;
@@ -7,7 +8,7 @@ use zbus::connection::Builder;
 async fn main() -> zbus::Result<()> {
     let pigeon = Pigeon::new();
 
-    let _ = Builder::session()?
+    let _conn = Builder::session()?
         .name("org.freedesktop.Notifications")?
         .serve_at("/org/freedesktop/Notifications", pigeon)?
         .build()
