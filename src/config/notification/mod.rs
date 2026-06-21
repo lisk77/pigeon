@@ -1,6 +1,7 @@
 use serde::{Deserialize, Deserializer};
 
 mod body;
+mod border;
 mod summary;
 mod thumbnail;
 
@@ -15,6 +16,7 @@ pub struct NotificationConfig {
     pub corner_radius: u32,
     #[serde(deserialize_with = "deserialize_rgba_color")]
     pub background_color: [u8; 4],
+    pub border: border::BorderConfig,
     pub thumbnail: thumbnail::ThumbnailConfig,
     pub summary: summary::SummaryConfig,
     pub body: body::BodyConfig,
@@ -30,6 +32,7 @@ impl Default for NotificationConfig {
             outer_padding: 16,
             corner_radius: 12,
             background_color: [0x20, 0x20, 0x20, 0xff],
+            border: border::BorderConfig::default(),
             thumbnail: thumbnail::ThumbnailConfig::default(),
             summary: summary::SummaryConfig::default(),
             body: body::BodyConfig::default(),
@@ -37,7 +40,7 @@ impl Default for NotificationConfig {
     }
 }
 
-fn deserialize_rgba_color<'de, D>(deserializer: D) -> Result<[u8; 4], D::Error>
+pub(super) fn deserialize_rgba_color<'de, D>(deserializer: D) -> Result<[u8; 4], D::Error>
 where
     D: Deserializer<'de>,
 {
@@ -45,7 +48,7 @@ where
     parse_rgba_color(&value).map_err(serde::de::Error::custom)
 }
 
-fn parse_rgba_color(value: &str) -> Result<[u8; 4], String> {
+pub(super) fn parse_rgba_color(value: &str) -> Result<[u8; 4], String> {
     let hex = value.strip_prefix('#').unwrap_or(value);
 
     if !hex.is_ascii() || !matches!(hex.len(), 6 | 8) {
