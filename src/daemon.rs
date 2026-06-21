@@ -62,12 +62,6 @@ impl Pigeon {
         expire_timeout: i32,
         #[zbus(signal_emitter)] emitter: SignalEmitter<'_>,
     ) -> u32 {
-        let id = if replaces_id != 0 {
-            replaces_id
-        } else {
-            self.next_id.fetch_add(1, Ordering::Relaxed)
-        };
-
         let actions: HashMap<String, String> = actions
             .chunks_exact(2)
             .map(|pair| (pair[0].clone(), pair[1].clone()))
@@ -87,8 +81,8 @@ impl Pigeon {
             _ => None,
         };
 
-        let notification = Arc::new(Notification {
-            id,
+        let mut notification = Notification {
+            id: 0,
             replaces_id,
             app_name,
             app_icon,
@@ -97,18 +91,33 @@ impl Pigeon {
             img,
             actions,
             hints,
-        });
+        };
+
+        let mut notifications = self.notifications.lock().unwrap();
+        let id = if replaces_id != 0 {
+            replaces_id
+        } else if let Some(tag) = notification.stack_tag() {
+            notifications
+                .values()
+                .find(|current| {
+                    current.stack_tag() == Some(tag) && same_source(current, &notification)
+                })
+                .map(|current| current.id)
+                .unwrap_or_else(|| self.next_id.fetch_add(1, Ordering::Relaxed))
+        } else {
+            self.next_id.fetch_add(1, Ordering::Relaxed)
+        };
+
+        notification.id = id;
+        let notification = Arc::new(notification);
+        notifications.insert(id, Arc::clone(&notification));
+        drop(notifications);
 
         println!("\nNotification from {}", notification.app_name);
         println!("{}", notification.summary);
         println!("{}", notification.body);
         println!("{}", notification.app_icon);
         println!("actions: {:?}", notification.actions);
-
-        self.notifications
-            .lock()
-            .unwrap()
-            .insert(id, notification.clone());
 
         if let Some(timeout) = timeout {
             let notifications = Arc::clone(&self.notifications);
@@ -165,6 +174,13 @@ impl Pigeon {
         id: u32,
         reason: u32,
     ) -> zbus::Result<()>;
+}
+
+fn same_source(left: &Notification, right: &Notification) -> bool {
+    match (left.desktop_entry(), right.desktop_entry()) {
+        (Some(left), Some(right)) => left == right,
+        _ => left.app_name == right.app_name,
+    }
 }
 
 fn configured_timeout(

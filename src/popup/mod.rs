@@ -132,6 +132,11 @@ impl Popup {
             }
             self.pending.remove(&id);
             self.reflow(&config);
+            for surface in self.surfaces.get_mut(&id).unwrap() {
+                if surface.configured {
+                    surface.draw(&mut self.pool, &mut self.fonts, &config);
+                }
+            }
             return;
         }
 
