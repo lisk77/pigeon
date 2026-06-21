@@ -1,3 +1,4 @@
+pub mod config;
 pub mod daemon;
 pub mod images;
 pub mod notification;

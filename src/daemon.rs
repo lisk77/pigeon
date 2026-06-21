@@ -1,4 +1,5 @@
 use crate::{
+    config::{GeneralConfig, PigeonConfig},
     images::decode_notification_image,
     notification::Notification,
     popup::{PopupEvent, PopupSender},
@@ -16,14 +17,16 @@ pub struct Pigeon {
     next_id: AtomicU32,
     notifications: Arc<Mutex<HashMap<u32, Arc<Notification>>>>,
     event_proxy: PopupSender,
+    config: PigeonConfig,
 }
 
 impl Pigeon {
-    pub fn new(event_proxy: PopupSender) -> Self {
+    pub fn new(event_proxy: PopupSender, config: PigeonConfig) -> Self {
         Self {
             next_id: AtomicU32::new(1),
             notifications: Arc::new(Mutex::new(HashMap::new())),
             event_proxy,
+            config,
         }
     }
 
@@ -96,7 +99,7 @@ impl Pigeon {
 
         let timeout = match expire_timeout {
             0 => None,
-            -1 => Some(std::time::Duration::from_millis(5000)),
+            -1 => Some(configured_timeout(&self.config.general, &hints)),
             milliseconds if milliseconds > 0 => {
                 Some(std::time::Duration::from_millis(milliseconds as u64))
             }
@@ -158,4 +161,22 @@ impl Pigeon {
         id: u32,
         reason: u32,
     ) -> zbus::Result<()>;
+}
+
+fn configured_timeout(
+    general_config: &GeneralConfig,
+    hints: &HashMap<String, OwnedValue>,
+) -> std::time::Duration {
+    let is_low_urgency = hints
+        .get("urgency")
+        .and_then(|urgency| urgency.downcast_ref::<u8>().ok())
+        == Some(0);
+
+    let timeout = if is_low_urgency {
+        general_config.low_timeout
+    } else {
+        general_config.normal_timeout
+    };
+
+    std::time::Duration::from_millis(timeout)
 }

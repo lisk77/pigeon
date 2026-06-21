@@ -9,3 +9,5 @@ zbus = { version = "5", features = ["tokio"] }
 tokio = { version = "1", features = ["macros", "rt-multi-thread", "sync", "time"] }
 smithay-client-toolkit = { version = "0.19", default-features = false, features = ["calloop"] }
 cosmic-text = "0.19.0"
+config = "0.15.24"
+serde = "1.0.228"

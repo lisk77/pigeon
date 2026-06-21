@@ -1,4 +1,5 @@
 use pigeond::{
+    config::PigeonConfig,
     daemon::Pigeon,
     popup::{self, Popup, PopupEvent},
 };
@@ -9,12 +10,14 @@ use std::{
 use zbus::connection::Builder;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let config = PigeonConfig::load_default()?;
+
     let (event_proxy, event_source) = popup::channel();
     let dismiss_events = event_proxy.clone();
     let (dismiss_sender, dismiss_receiver) = tokio::sync::mpsc::unbounded_channel::<u32>();
     let runtime = tokio::runtime::Runtime::new()?;
 
-    let pigeon = Pigeon::new(event_proxy);
+    let pigeon = Pigeon::new(event_proxy, config);
     let notifications = pigeon.notifications();
 
     let connection = runtime.block_on(async {
