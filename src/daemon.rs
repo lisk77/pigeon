@@ -58,7 +58,7 @@ impl Pigeon {
         summary: String,
         body: String,
         actions: Vec<String>,
-        hints: HashMap<String, OwnedValue>,
+        mut hints: HashMap<String, OwnedValue>,
         expire_timeout: i32,
         #[zbus(signal_emitter)] emitter: SignalEmitter<'_>,
     ) -> u32 {
@@ -75,6 +75,18 @@ impl Pigeon {
 
         let img = decode_notification_image(&hints, &app_icon);
 
+        hints.remove("image-data");
+        hints.remove("image_data");
+
+        let timeout = match expire_timeout {
+            0 => None,
+            -1 => Some(configured_timeout(&self.config, &hints)),
+            milliseconds if milliseconds > 0 => {
+                Some(std::time::Duration::from_millis(milliseconds as u64))
+            }
+            _ => None,
+        };
+
         let notification = Arc::new(Notification {
             id,
             replaces_id,
@@ -84,6 +96,7 @@ impl Pigeon {
             body,
             img,
             actions,
+            hints,
         });
 
         println!("\nNotification from {}", notification.app_name);
@@ -96,15 +109,6 @@ impl Pigeon {
             .lock()
             .unwrap()
             .insert(id, notification.clone());
-
-        let timeout = match expire_timeout {
-            0 => None,
-            -1 => Some(configured_timeout(&self.config, &hints)),
-            milliseconds if milliseconds > 0 => {
-                Some(std::time::Duration::from_millis(milliseconds as u64))
-            }
-            _ => None,
-        };
 
         if let Some(timeout) = timeout {
             let notifications = Arc::clone(&self.notifications);
