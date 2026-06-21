@@ -61,8 +61,8 @@ impl Popup {
         let layer_shell = LayerShell::bind(&globals, &qh)?;
         let shm = Shm::bind(&globals, &qh)?;
 
-        let max_buffer_bytes = (config.general.max_card_width as usize)
-            .checked_mul(config.general.max_card_height as usize)
+        let max_buffer_bytes = (config.notification.max_width as usize)
+            .checked_mul(config.notification.max_height as usize)
             .and_then(|pixels| pixels.checked_mul(4))
             .ok_or_else(|| std::io::Error::other("maximum card dimensions are too large"))?;
         let pool = SlotPool::new(max_buffer_bytes, &shm)?;
@@ -102,7 +102,7 @@ impl Popup {
 
     fn show(&mut self, qh: &QueueHandle<Self>, notification: Arc<Notification>) {
         let id = notification.id;
-        let width = self.config.general.max_card_width;
+        let width = self.config.notification.max_width;
         let height = render::measure_card_height(
             &notification,
             width,

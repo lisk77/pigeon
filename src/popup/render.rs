@@ -24,16 +24,17 @@ pub fn render_card(
     fonts: &mut FontCtx,
     config: &PigeonConfig,
 ) {
+    let notification_config = &config.notification;
     for pixel in canvas.chunks_exact_mut(4) {
-        pixel.copy_from_slice(&config.general.background_color);
+        pixel.copy_from_slice(&notification_config.background_color);
     }
 
-    let outer_padding = config.general.outer_padding;
-    let thumbnail_size = config.general.thumbnail_size;
-    let thumbnail_gap = config.general.thumbnail_gap;
-    let summary_font_size = config.general.summary_font_size;
-    let body_font_size = config.general.body_font_size;
-    let summary_body_gap = config.general.summary_body_gap;
+    let outer_padding = notification_config.outer_padding;
+    let thumbnail_size = notification_config.thumbnail.size;
+    let thumbnail_gap = notification_config.thumbnail.gap;
+    let summary_font_size = notification_config.summary.font_size;
+    let body_font_size = notification_config.body.font_size;
+    let summary_body_gap = notification_config.summary.bottom_gap;
 
     let text_x = if let Some(img) = &notification.img {
         draw_thumbnail(
@@ -203,36 +204,39 @@ pub fn measure_card_height(
     fonts: &mut FontCtx,
     config: &PigeonConfig,
 ) -> u32 {
+    let notification_config = &config.notification;
     let text_x = if notification.img.is_some() {
-        config.general.outer_padding + config.general.thumbnail_size + config.general.thumbnail_gap
+        notification_config.outer_padding
+            + notification_config.thumbnail.size
+            + notification_config.thumbnail.gap
     } else {
-        config.general.outer_padding
+        notification_config.outer_padding
     };
-    let text_width = (width - text_x - config.general.outer_padding).max(0);
+    let text_width = (width - text_x - notification_config.outer_padding).max(0);
     let summary_height = measure_text_height(
         fonts,
         &notification.summary,
         text_width,
-        config.general.summary_font_size,
+        notification_config.summary.font_size,
         true,
     );
     let body_height = measure_text_height(
         fonts,
         &notification.body,
         text_width,
-        config.general.body_font_size,
+        notification_config.body.font_size,
         false,
     );
-    let text_stack_height = summary_height + config.general.summary_body_gap + body_height;
+    let text_stack_height = summary_height + notification_config.summary.bottom_gap + body_height;
     let content_height = if notification.img.is_some() {
-        (config.general.thumbnail_size as f32).max(text_stack_height)
+        (notification_config.thumbnail.size as f32).max(text_stack_height)
     } else {
         text_stack_height
     };
 
-    (((config.general.outer_padding * 2) as f32 + content_height).ceil() as u32).clamp(
-        config.general.min_card_height,
-        config.general.max_card_height,
+    (((notification_config.outer_padding * 2) as f32 + content_height).ceil() as u32).clamp(
+        notification_config.min_height,
+        notification_config.max_height,
     )
 }
 

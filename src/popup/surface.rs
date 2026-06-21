@@ -99,9 +99,9 @@ impl NotificationSurface {
 }
 
 pub(super) fn restack(surfaces: &BTreeMap<u32, Vec<NotificationSurface>>, config: &PigeonConfig) {
-    let mut top = config.general.top_margin as i32;
-    let right = config.general.right_margin as i32;
-    let notification_gap = config.general.notification_gap as i32;
+    let mut top = config.placement.top_margin as i32;
+    let right = config.placement.right_margin as i32;
+    let notification_gap = config.placement.notification_gap as i32;
 
     for surfaces in surfaces.values() {
         let height = surfaces.first().map_or(0, |surface| surface.height) as i32;
