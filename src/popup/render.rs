@@ -1,20 +1,6 @@
 use cosmic_text::{Attrs, Buffer, Color, FontSystem, Metrics, Shaping, SwashCache, Weight, Wrap};
 
-use crate::{images::Image, notification::Notification};
-
-pub const CARD_WIDTH: u32 = 360;
-pub const CARD_HEIGHT: u32 = 160;
-
-const PADDING: i32 = 16;
-const THUMBNAIL_SIZE: u32 = 64;
-const THUMBNAIL_GAP: i32 = 16;
-const SUMMARY_Y: i32 = PADDING;
-const SUMMARY_SIZE: f32 = 18.0;
-const BODY_SIZE: f32 = 14.0;
-const TEXT_GAP: f32 = 8.0;
-const MIN_CARD_HEIGHT: u32 = 96;
-const MAX_CARD_HEIGHT: u32 = 480;
-const BACKGROUND: [u8; 4] = [0x20, 0x20, 0x20, 0xff];
+use crate::{config::PigeonConfig, images::Image, notification::Notification};
 
 pub struct FontCtx {
     pub font_system: FontSystem,
@@ -36,10 +22,18 @@ pub fn render_card(
     height: u32,
     notification: &Notification,
     fonts: &mut FontCtx,
+    config: &PigeonConfig,
 ) {
     for pixel in canvas.chunks_exact_mut(4) {
-        pixel.copy_from_slice(&BACKGROUND);
+        pixel.copy_from_slice(&config.general.background_color);
     }
+
+    let outer_padding = config.general.outer_padding;
+    let thumbnail_size = config.general.thumbnail_size;
+    let thumbnail_gap = config.general.thumbnail_gap;
+    let summary_font_size = config.general.summary_font_size;
+    let body_font_size = config.general.body_font_size;
+    let summary_body_gap = config.general.summary_body_gap;
 
     let text_x = if let Some(img) = &notification.img {
         draw_thumbnail(
@@ -47,19 +41,24 @@ pub fn render_card(
             width,
             height,
             img,
-            PADDING as u32,
-            PADDING as u32,
-            THUMBNAIL_SIZE,
-            THUMBNAIL_SIZE,
+            outer_padding,
+            outer_padding,
+            thumbnail_size,
+            thumbnail_size,
         );
-        PADDING + THUMBNAIL_SIZE as i32 + THUMBNAIL_GAP
+        outer_padding + thumbnail_size + thumbnail_gap
     } else {
-        PADDING
+        outer_padding
     };
-    let text_width = (width as i32 - text_x - PADDING).max(0);
-    let summary_height =
-        measure_text_height(fonts, &notification.summary, text_width, SUMMARY_SIZE, true);
-    let body_y = SUMMARY_Y as f32 + summary_height + TEXT_GAP;
+    let text_width = (width - text_x - outer_padding).max(0);
+    let summary_height = measure_text_height(
+        fonts,
+        &notification.summary,
+        text_width,
+        summary_font_size,
+        true,
+    );
+    let body_y = outer_padding as f32 + summary_height + summary_body_gap;
 
     draw_text(
         canvas,
@@ -68,10 +67,10 @@ pub fn render_card(
         fonts,
         &notification.summary,
         text_x,
-        SUMMARY_Y,
+        outer_padding,
         text_width,
-        summary_height.ceil() as i32,
-        SUMMARY_SIZE,
+        summary_height.ceil() as u32,
+        summary_font_size,
         true,
     );
 
@@ -82,10 +81,10 @@ pub fn render_card(
         fonts,
         &notification.body,
         text_x,
-        body_y.ceil() as i32,
+        body_y.ceil() as u32,
         text_width,
-        (height as i32 - body_y.ceil() as i32 - PADDING).max(0),
-        BODY_SIZE,
+        (height - body_y.ceil() as u32 - outer_padding).max(0),
+        body_font_size,
         false,
     );
 }
@@ -96,10 +95,10 @@ fn draw_text(
     canvas_height: u32,
     fonts: &mut FontCtx,
     text: &str,
-    x_offset: i32,
-    y_offset: i32,
-    text_width: i32,
-    text_height: i32,
+    x_offset: u32,
+    y_offset: u32,
+    text_width: u32,
+    text_height: u32,
     font_size: f32,
     bold: bool,
 ) {
@@ -125,13 +124,13 @@ fn draw_text(
         swash_cache,
         Color::rgb(0xFF, 0xFF, 0xFF),
         |x, y, width, height, color| {
-            let x_start = (x + x_offset).max(0) as u32;
-            let y_start = (y + y_offset).max(0) as u32;
-            let x_end = (x + x_offset + width as i32)
-                .min(canvas_width as i32)
+            let x_start = (x as u32 + x_offset).max(0) as u32;
+            let y_start = (y as u32 + y_offset).max(0) as u32;
+            let x_end = (x as u32 + x_offset + width as u32)
+                .min(canvas_width as u32)
                 .max(0) as u32;
-            let y_end = (y + y_offset + height as i32)
-                .min(canvas_height as i32)
+            let y_end = (y as u32 + y_offset + height as u32)
+                .min(canvas_height as u32)
                 .max(0) as u32;
 
             for y in y_start..y_end {
@@ -198,30 +197,49 @@ fn draw_thumbnail(
     }
 }
 
-pub fn measure_card_height(notification: &Notification, width: u32, fonts: &mut FontCtx) -> u32 {
+pub fn measure_card_height(
+    notification: &Notification,
+    width: u32,
+    fonts: &mut FontCtx,
+    config: &PigeonConfig,
+) -> u32 {
     let text_x = if notification.img.is_some() {
-        PADDING + THUMBNAIL_SIZE as i32 + THUMBNAIL_GAP
+        config.general.outer_padding + config.general.thumbnail_size + config.general.thumbnail_gap
     } else {
-        PADDING
+        config.general.outer_padding
     };
-    let text_width = (width as i32 - text_x - PADDING).max(0);
-    let summary_height =
-        measure_text_height(fonts, &notification.summary, text_width, SUMMARY_SIZE, true);
-    let body_height = measure_text_height(fonts, &notification.body, text_width, BODY_SIZE, false);
-    let text_stack_height = summary_height + TEXT_GAP + body_height;
+    let text_width = (width - text_x - config.general.outer_padding).max(0);
+    let summary_height = measure_text_height(
+        fonts,
+        &notification.summary,
+        text_width,
+        config.general.summary_font_size,
+        true,
+    );
+    let body_height = measure_text_height(
+        fonts,
+        &notification.body,
+        text_width,
+        config.general.body_font_size,
+        false,
+    );
+    let text_stack_height = summary_height + config.general.summary_body_gap + body_height;
     let content_height = if notification.img.is_some() {
-        (THUMBNAIL_SIZE as f32).max(text_stack_height)
+        (config.general.thumbnail_size as f32).max(text_stack_height)
     } else {
         text_stack_height
     };
 
-    (((PADDING * 2) as f32 + content_height).ceil() as u32).clamp(MIN_CARD_HEIGHT, MAX_CARD_HEIGHT)
+    (((config.general.outer_padding * 2) as f32 + content_height).ceil() as u32).clamp(
+        config.general.min_card_height,
+        config.general.max_card_height,
+    )
 }
 
 fn measure_text_height(
     fonts: &mut FontCtx,
     text: &str,
-    width: i32,
+    width: u32,
     font_size: f32,
     bold: bool,
 ) -> f32 {

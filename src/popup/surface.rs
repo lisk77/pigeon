@@ -16,11 +16,7 @@ use smithay_client_toolkit::{
 
 use super::Popup;
 use super::render::{self, FontCtx};
-use crate::notification::Notification;
-
-const TOP_MARGIN: i32 = 16;
-const RIGHT_MARGIN: i32 = 16;
-const CARD_GAP: i32 = 8;
+use crate::{config::PigeonConfig, notification::Notification};
 
 pub(super) struct NotificationSurface {
     pub(super) notification: Arc<Notification>,
@@ -66,7 +62,7 @@ impl NotificationSurface {
         }
     }
 
-    pub(super) fn draw(&mut self, pool: &mut SlotPool, fonts: &mut FontCtx) {
+    pub(super) fn draw(&mut self, pool: &mut SlotPool, fonts: &mut FontCtx, config: &PigeonConfig) {
         if !self.configured {
             return;
         }
@@ -81,7 +77,14 @@ impl NotificationSurface {
             )
             .expect("allocate notification buffer");
 
-        render::render_card(canvas, self.width, self.height, &self.notification, fonts);
+        render::render_card(
+            canvas,
+            self.width,
+            self.height,
+            &self.notification,
+            fonts,
+            config,
+        );
 
         self.layer
             .wl_surface()
@@ -95,16 +98,18 @@ impl NotificationSurface {
     }
 }
 
-pub(super) fn restack(surfaces: &BTreeMap<u32, Vec<NotificationSurface>>) {
-    let mut top = TOP_MARGIN;
+pub(super) fn restack(surfaces: &BTreeMap<u32, Vec<NotificationSurface>>, config: &PigeonConfig) {
+    let mut top = config.general.top_margin as i32;
+    let right = config.general.right_margin as i32;
+    let notification_gap = config.general.notification_gap as i32;
 
     for surfaces in surfaces.values() {
         let height = surfaces.first().map_or(0, |surface| surface.height) as i32;
         for surface in surfaces {
-            surface.layer.set_margin(top, RIGHT_MARGIN, 0, 0);
+            surface.layer.set_margin(top, right, 0, 0);
             surface.layer.commit();
         }
 
-        top += height + CARD_GAP;
+        top += height + notification_gap;
     }
 }

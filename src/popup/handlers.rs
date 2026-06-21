@@ -75,7 +75,7 @@ impl LayerShellHandler for Popup {
             if self.surfaces[&id].is_empty() {
                 self.close(id);
             } else {
-                surface::restack(&self.surfaces);
+                surface::restack(&self.surfaces, &self.config);
             }
         }
     }
@@ -102,7 +102,7 @@ impl LayerShellHandler for Popup {
                 surface.height = configure.new_size.1;
             }
             surface.configured = true;
-            surface.draw(&mut self.pool, &mut self.fonts);
+            surface.draw(&mut self.pool, &mut self.fonts, self.config.as_ref());
         }
     }
 }
@@ -150,7 +150,7 @@ impl OutputHandler for Popup {
             );
             self.surfaces.get_mut(&id).unwrap().push(surface);
         }
-        surface::restack(&self.surfaces);
+        surface::restack(&self.surfaces, &self.config);
     }
 
     fn update_output(&mut self, _: &Connection, _: &QueueHandle<Self>, _: wl_output::WlOutput) {}
@@ -165,7 +165,7 @@ impl OutputHandler for Popup {
             surfaces.retain(|surface| surface.output != output);
             !surfaces.is_empty()
         });
-        surface::restack(&self.surfaces);
+        surface::restack(&self.surfaces, &self.config);
     }
 }
 

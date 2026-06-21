@@ -17,11 +17,11 @@ pub struct Pigeon {
     next_id: AtomicU32,
     notifications: Arc<Mutex<HashMap<u32, Arc<Notification>>>>,
     event_proxy: PopupSender,
-    config: PigeonConfig,
+    config: Arc<PigeonConfig>,
 }
 
 impl Pigeon {
-    pub fn new(event_proxy: PopupSender, config: PigeonConfig) -> Self {
+    pub fn new(event_proxy: PopupSender, config: Arc<PigeonConfig>) -> Self {
         Self {
             next_id: AtomicU32::new(1),
             notifications: Arc::new(Mutex::new(HashMap::new())),

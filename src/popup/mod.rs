@@ -8,7 +8,7 @@ pub use events::{PopupEvent, PopupReceiver, PopupSender, channel};
 use std::collections::BTreeMap;
 use std::sync::Arc;
 
-use render::{CARD_HEIGHT, CARD_WIDTH, FontCtx};
+use render::FontCtx;
 use smithay_client_toolkit::{
     compositor::CompositorState,
     output::OutputState,
@@ -26,7 +26,7 @@ use smithay_client_toolkit::{
 use surface::NotificationSurface;
 use tokio::sync::mpsc::UnboundedSender;
 
-use crate::notification::Notification;
+use crate::{config::PigeonConfig, notification::Notification};
 
 pub struct Popup {
     pub(in crate::popup) registry_state: RegistryState,
@@ -40,12 +40,14 @@ pub struct Popup {
     pub(in crate::popup) seat_state: SeatState,
     pub(in crate::popup) pointer: Option<wl_pointer::WlPointer>,
     pub(in crate::popup) dismiss_sender: UnboundedSender<u32>,
+    pub(in crate::popup) config: Arc<PigeonConfig>,
 }
 
 impl Popup {
     pub fn run(
         events: PopupReceiver,
         dismiss_sender: UnboundedSender<u32>,
+        config: Arc<PigeonConfig>,
     ) -> Result<(), Box<dyn std::error::Error>> {
         let connection = Connection::connect_to_env()?;
         let (globals, event_queue) = registry_queue_init(&connection)?;
@@ -59,7 +61,11 @@ impl Popup {
         let layer_shell = LayerShell::bind(&globals, &qh)?;
         let shm = Shm::bind(&globals, &qh)?;
 
-        let pool = SlotPool::new((CARD_WIDTH * CARD_HEIGHT * 4) as usize, &shm)?;
+        let max_buffer_bytes = (config.general.max_card_width as usize)
+            .checked_mul(config.general.max_card_height as usize)
+            .and_then(|pixels| pixels.checked_mul(4))
+            .ok_or_else(|| std::io::Error::other("maximum card dimensions are too large"))?;
+        let pool = SlotPool::new(max_buffer_bytes, &shm)?;
         let mut popup = Self {
             registry_state: RegistryState::new(&globals),
             output_state: OutputState::new(&globals, &qh),
@@ -72,6 +78,7 @@ impl Popup {
             seat_state: SeatState::new(&globals, &qh),
             pointer: None,
             dismiss_sender,
+            config,
         };
 
         let commands_qh = qh.clone();
@@ -95,7 +102,13 @@ impl Popup {
 
     fn show(&mut self, qh: &QueueHandle<Self>, notification: Arc<Notification>) {
         let id = notification.id;
-        let height = render::measure_card_height(&notification, CARD_WIDTH, &mut self.fonts);
+        let width = self.config.general.max_card_width;
+        let height = render::measure_card_height(
+            &notification,
+            width,
+            &mut self.fonts,
+            self.config.as_ref(),
+        );
 
         if let Some(surfaces) = self.surfaces.get_mut(&id) {
             for surface in surfaces.iter_mut() {
@@ -105,7 +118,7 @@ impl Popup {
                 surface.layer.set_size(surface.width, height);
                 surface.layer.commit();
             }
-            surface::restack(&self.surfaces);
+            surface::restack(&self.surfaces, &self.config);
             return;
         }
 
@@ -119,17 +132,17 @@ impl Popup {
                     &self.layer_shell,
                     notification.clone(),
                     output,
-                    CARD_WIDTH,
+                    width,
                     height,
                 )
             })
             .collect();
         self.surfaces.insert(id, surfaces);
-        surface::restack(&self.surfaces);
+        surface::restack(&self.surfaces, &self.config);
     }
 
     pub(in crate::popup) fn close(&mut self, id: u32) {
         self.surfaces.remove(&id);
-        surface::restack(&self.surfaces);
+        surface::restack(&self.surfaces, &self.config);
     }
 }

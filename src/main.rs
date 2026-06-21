@@ -10,14 +10,14 @@ use std::{
 use zbus::connection::Builder;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let config = PigeonConfig::load_default()?;
+    let config = Arc::new(PigeonConfig::load_default()?);
 
     let (event_proxy, event_source) = popup::channel();
     let dismiss_events = event_proxy.clone();
     let (dismiss_sender, dismiss_receiver) = tokio::sync::mpsc::unbounded_channel::<u32>();
     let runtime = tokio::runtime::Runtime::new()?;
 
-    let pigeon = Pigeon::new(event_proxy, config);
+    let pigeon = Pigeon::new(event_proxy, Arc::clone(&config));
     let notifications = pigeon.notifications();
 
     let connection = runtime.block_on(async {
@@ -40,7 +40,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .await;
     });
 
-    Popup::run(event_source, dismiss_sender)?;
+    Popup::run(event_source, dismiss_sender, config)?;
     Ok(())
 }
 
