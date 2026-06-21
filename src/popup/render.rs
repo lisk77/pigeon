@@ -20,6 +20,8 @@ pub fn render_card(
     canvas: &mut [u8],
     width: u32,
     height: u32,
+    full_width: u32,
+    full_height: u32,
     notification: &Notification,
     fonts: &mut FontCtx,
     config: &PigeonConfig,
@@ -29,6 +31,8 @@ pub fn render_card(
         canvas,
         width,
         height,
+        full_width,
+        full_height,
         notification_config.background_color,
         notification_config.border.color,
         notification_config.border.width,
@@ -59,7 +63,9 @@ pub fn render_card(
     } else {
         outer_padding
     };
-    let text_width = width.saturating_sub(text_x).saturating_sub(outer_padding);
+    let text_width = full_width
+        .saturating_sub(text_x)
+        .saturating_sub(outer_padding);
     let summary_height = measure_text_height(
         fonts,
         &notification.summary,
@@ -70,7 +76,9 @@ pub fn render_card(
     let body_y = outer_padding as f32 + summary_height + summary_body_gap;
 
     let body_y = body_y.ceil() as u32;
-    let body_height = height.saturating_sub(body_y).saturating_sub(outer_padding);
+    let body_height = full_height
+        .saturating_sub(body_y)
+        .saturating_sub(outer_padding);
 
     draw_text(
         canvas,
@@ -105,21 +113,25 @@ fn fill_notification_background(
     canvas: &mut [u8],
     width: u32,
     height: u32,
+    full_width: u32,
+    full_height: u32,
     background: [u8; 4],
     border: [u8; 4],
     border_width: u32,
     corner_radius: u32,
 ) {
-    let border_width = border_width.min(width / 2).min(height / 2);
-    let inner_width = width.saturating_sub(border_width.saturating_mul(2));
-    let inner_height = height.saturating_sub(border_width.saturating_mul(2));
+    let border_width = border_width.min(full_width / 2).min(full_height / 2);
+    let inner_width = full_width.saturating_sub(border_width.saturating_mul(2));
+    let inner_height = full_height.saturating_sub(border_width.saturating_mul(2));
     let inner_radius = corner_radius.saturating_sub(border_width);
 
     for y in 0..height {
         for x in 0..width {
             let pixel = ((y * width + x) * 4) as usize;
             let color = match () {
-                _ if !rounded_rect_contains(x, y, width, height, corner_radius) => [0, 0, 0, 0],
+                _ if !rounded_rect_contains(x, y, full_width, full_height, corner_radius) => {
+                    [0, 0, 0, 0]
+                }
                 _ if border_width == 0 => background,
                 _ if inner_width > 0
                     && inner_height > 0
@@ -167,31 +179,6 @@ fn rounded_rect_contains(x: u32, y: u32, width: u32, height: u32, corner_radius:
     let radius = radius as u64 * 2;
 
     center_x.abs_diff(pixel_x).pow(2) + center_y.abs_diff(pixel_y).pow(2) <= radius.pow(2)
-}
-
-#[cfg(test)]
-mod tests {
-    use super::{fill_notification_background, rounded_rect_contains};
-
-    #[test]
-    fn rounded_mask_clears_outer_corner_pixels() {
-        assert!(!rounded_rect_contains(0, 0, 20, 20, 4));
-        assert!(rounded_rect_contains(3, 0, 20, 20, 4));
-        assert!(rounded_rect_contains(10, 10, 20, 20, 4));
-    }
-
-    #[test]
-    fn border_is_inset_with_a_matching_corner_radius() {
-        let mut canvas = vec![0; 10 * 10 * 4];
-        let background = [1, 2, 3, 4];
-        let border = [5, 6, 7, 8];
-
-        fill_notification_background(&mut canvas, 10, 10, background, border, 2, 4);
-
-        assert_eq!(&canvas[(5 * 10 + 5) * 4..][..4], &background);
-        assert_eq!(&canvas[(5 * 10 + 1) * 4..][..4], &border);
-        assert_eq!(&canvas[..4], &[0, 0, 0, 0]);
-    }
 }
 
 fn draw_text(

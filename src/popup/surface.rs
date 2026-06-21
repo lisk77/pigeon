@@ -28,6 +28,8 @@ pub(super) struct NotificationSurface {
     pub(super) configured: bool,
     pub(super) width: u32,
     pub(super) height: u32,
+    pub(super) full_width: u32,
+    pub(super) full_height: u32,
     buffer: Option<Buffer>,
 }
 
@@ -40,6 +42,8 @@ impl NotificationSurface {
         output: wl_output::WlOutput,
         width: u32,
         height: u32,
+        full_width: u32,
+        full_height: u32,
         placement: &PlacementConfig,
     ) -> Self {
         let wl_surface = compositor.create_surface(qh);
@@ -62,6 +66,8 @@ impl NotificationSurface {
             configured: false,
             width,
             height,
+            full_width,
+            full_height,
             buffer: None,
         }
     }
@@ -89,6 +95,8 @@ impl NotificationSurface {
             canvas,
             self.width,
             self.height,
+            self.full_width,
+            self.full_height,
             &self.notification,
             fonts,
             config,

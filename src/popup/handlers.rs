@@ -64,7 +64,7 @@ impl CompositorHandler for Popup {
 }
 
 impl LayerShellHandler for Popup {
-    fn closed(&mut self, _: &Connection, _: &QueueHandle<Self>, layer: &LayerSurface) {
+    fn closed(&mut self, _: &Connection, qh: &QueueHandle<Self>, layer: &LayerSurface) {
         if let Some((id, output_index)) = self.surfaces.iter().find_map(|(id, surfaces)| {
             surfaces
                 .iter()
@@ -73,7 +73,7 @@ impl LayerShellHandler for Popup {
         }) {
             self.surfaces.get_mut(&id).unwrap().remove(output_index);
             if self.surfaces[&id].is_empty() {
-                self.close(id);
+                self.close(qh, id);
             } else {
                 let config = self.config.read().expect("config lock poisoned");
                 surface::restack(&self.surfaces, &config);
@@ -137,6 +137,8 @@ impl OutputHandler for Popup {
                             surface.notification.clone(),
                             surface.width,
                             surface.height,
+                            surface.full_width,
+                            surface.full_height,
                         )
                     })
                 }
@@ -145,7 +147,7 @@ impl OutputHandler for Popup {
 
         let config = self.config.read().expect("config lock poisoned");
 
-        for (id, notification, width, height) in missing {
+        for (id, notification, width, height, full_width, full_height) in missing {
             let surface = NotificationSurface::new(
                 qh,
                 &self.compositor,
@@ -154,6 +156,8 @@ impl OutputHandler for Popup {
                 output.clone(),
                 width,
                 height,
+                full_width,
+                full_height,
                 &config.placement,
             );
             self.surfaces.get_mut(&id).unwrap().push(surface);

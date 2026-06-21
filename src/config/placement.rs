@@ -30,8 +30,8 @@ impl Default for PlacementConfig {
         Self {
             position: Position::TopRight,
             top_margin: 16,
-            bottom_margin: 16,
-            left_margin: 16,
+            bottom_margin: 0,
+            left_margin: 0,
             right_margin: 16,
             notification_gap: 8,
         }
