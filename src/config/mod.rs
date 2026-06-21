@@ -7,13 +7,11 @@ use std::{
     sync::{Arc, RwLock},
 };
 
-mod notification;
-mod placement;
+pub mod notification;
 mod profiles;
 mod timeouts;
 
 pub use notification::NotificationConfig;
-pub use placement::{PlacementConfig, Position};
 pub use profiles::Profile;
 pub use timeouts::TimeoutConfig;
 
@@ -23,7 +21,6 @@ pub type SharedConfig = Arc<RwLock<PigeonConfig>>;
 #[serde(default)]
 pub struct PigeonConfig {
     pub timeouts: TimeoutConfig,
-    pub placement: PlacementConfig,
     pub notification: NotificationConfig,
     #[serde(default)]
     profiles: HashMap<String, Profile>,

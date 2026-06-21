@@ -27,7 +27,7 @@ use surface::NotificationSurface;
 use tokio::sync::mpsc::UnboundedSender;
 
 use crate::{
-    config::{PigeonConfig, Position, SharedConfig},
+    config::{PigeonConfig, SharedConfig, notification::Position},
     notification::Notification,
 };
 
@@ -152,7 +152,7 @@ impl Popup {
                     visible_height,
                     width,
                     height,
-                    &config.placement,
+                    &config.notification.placement,
                 ))
             })
             .collect();
@@ -176,7 +176,7 @@ impl Popup {
             return Some((width, height));
         };
 
-        let placement = &config.placement;
+        let placement = &config.notification.placement;
         let (axis_size, leading_margin, trailing_margin, new_surface_size) =
             match placement.position {
                 Position::Top | Position::TopLeft | Position::TopRight => (
@@ -239,7 +239,7 @@ impl Popup {
                 continue;
             };
 
-            let placement = &config.placement;
+            let placement = &config.notification.placement;
             let (axis_size, leading_margin, trailing_margin) = match placement.position {
                 Position::Top | Position::TopLeft | Position::TopRight => {
                     (output_height, placement.top_margin, placement.bottom_margin)
@@ -336,7 +336,7 @@ impl Popup {
 
         for surfaces in self.surfaces.values_mut() {
             for surface in surfaces {
-                surface.update_placement(&config.placement);
+                surface.update_placement(&config.notification.placement);
                 surface.full_width = width;
                 surface.full_height = render::card::measure_card_height(
                     &surface.notification,

@@ -17,7 +17,10 @@ use smithay_client_toolkit::{
 use super::Popup;
 use super::render::{self, text::FontCtx};
 use crate::{
-    config::{PigeonConfig, PlacementConfig, Position},
+    config::{
+        PigeonConfig,
+        notification::{PlacementConfig, Position},
+    },
     notification::Notification,
 };
 
@@ -128,7 +131,7 @@ fn anchor_for(position: &Position) -> Anchor {
 }
 
 pub(super) fn restack(surfaces: &BTreeMap<u32, Vec<NotificationSurface>>, config: &PigeonConfig) {
-    let placement = &config.placement;
+    let placement = &config.notification.placement;
     let mut offset = match placement.position {
         Position::Top | Position::TopLeft | Position::TopRight => placement.top_margin as i32,
         Position::Bottom | Position::BottomLeft | Position::BottomRight => {

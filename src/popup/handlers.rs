@@ -158,7 +158,7 @@ impl OutputHandler for Popup {
                 height,
                 full_width,
                 full_height,
-                &config.placement,
+                &config.notification.placement,
             );
             self.surfaces.get_mut(&id).unwrap().push(surface);
         }

@@ -2,8 +2,11 @@ use serde::{Deserialize, Deserializer};
 
 mod body;
 mod border;
+mod placement;
 mod summary;
 mod thumbnail;
+
+pub use placement::{PlacementConfig, Position};
 
 #[derive(Debug, Deserialize)]
 #[serde(default)]
@@ -16,6 +19,7 @@ pub struct NotificationConfig {
     pub corner_radius: u32,
     #[serde(deserialize_with = "deserialize_rgba_color")]
     pub background_color: [u8; 4],
+    pub placement: placement::PlacementConfig,
     pub border: border::BorderConfig,
     pub thumbnail: thumbnail::ThumbnailConfig,
     pub summary: summary::SummaryConfig,
@@ -32,6 +36,7 @@ impl Default for NotificationConfig {
             outer_padding: 16,
             corner_radius: 12,
             background_color: [0x20, 0x20, 0x20, 0xff],
+            placement: placement::PlacementConfig::default(),
             border: border::BorderConfig::default(),
             thumbnail: thumbnail::ThumbnailConfig::default(),
             summary: summary::SummaryConfig::default(),
