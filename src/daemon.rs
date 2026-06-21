@@ -167,17 +167,14 @@ fn configured_timeout(
     config: &SharedConfig,
     hints: &HashMap<String, OwnedValue>,
 ) -> std::time::Duration {
-    let is_low_urgency = hints
+    let config = config.read().expect("config lock poisoned");
+    let timeout = match hints
         .get("urgency")
         .and_then(|urgency| urgency.downcast_ref::<u8>().ok())
-        == Some(0);
-
-    let config = config.read().expect("config lock poisoned");
-    let timeout = if is_low_urgency {
-        config.timeouts.low_timeout
-    } else {
-        config.timeouts.normal_timeout
+    {
+        Some(0) => config.timeouts.low_timeout,
+        Some(2) => config.timeouts.critical_timeout,
+        _ => config.timeouts.normal_timeout,
     };
-
     std::time::Duration::from_millis(timeout)
 }
