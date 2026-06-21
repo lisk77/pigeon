@@ -35,11 +35,6 @@ impl Notification {
             .and_then(|hint| <&str>::try_from(hint).ok())
     }
 
-    pub fn value(&self) -> Option<i32> {
-        self.hint("value")
-            .and_then(|hint| hint.downcast_ref::<i32>().ok())
-    }
-
     pub fn desktop_entry(&self) -> Option<&str> {
         self.hint("desktop-entry")
             .and_then(|hint| <&str>::try_from(hint).ok())
