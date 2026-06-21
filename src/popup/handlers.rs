@@ -75,7 +75,8 @@ impl LayerShellHandler for Popup {
             if self.surfaces[&id].is_empty() {
                 self.close(id);
             } else {
-                surface::restack(&self.surfaces, &self.config);
+                let config = self.config.read().expect("config lock poisoned");
+                surface::restack(&self.surfaces, &config);
             }
         }
     }
@@ -94,6 +95,7 @@ impl LayerShellHandler for Popup {
                 .position(|surface| &surface.layer == layer)
                 .map(|output_index| (*id, output_index))
         }) {
+            let config = self.config.read().expect("config lock poisoned");
             {
                 let surface = &mut self.surfaces.get_mut(&id).unwrap()[output_index];
                 if configure.new_size.0 != 0 {
@@ -103,9 +105,9 @@ impl LayerShellHandler for Popup {
                     surface.height = configure.new_size.1;
                 }
                 surface.configured = true;
-                surface.draw(&mut self.pool, &mut self.fonts, self.config.as_ref());
+                surface.draw(&mut self.pool, &mut self.fonts, &config);
             }
-            surface::restack(&self.surfaces, &self.config);
+            surface::restack(&self.surfaces, &config);
         }
     }
 }
@@ -141,6 +143,8 @@ impl OutputHandler for Popup {
             })
             .collect::<Vec<_>>();
 
+        let config = self.config.read().expect("config lock poisoned");
+
         for (id, notification, width, height) in missing {
             let surface = NotificationSurface::new(
                 qh,
@@ -150,11 +154,11 @@ impl OutputHandler for Popup {
                 output.clone(),
                 width,
                 height,
-                &self.config.placement,
+                &config.placement,
             );
             self.surfaces.get_mut(&id).unwrap().push(surface);
         }
-        surface::restack(&self.surfaces, &self.config);
+        surface::restack(&self.surfaces, &config);
     }
 
     fn update_output(&mut self, _: &Connection, _: &QueueHandle<Self>, _: wl_output::WlOutput) {}
@@ -165,11 +169,12 @@ impl OutputHandler for Popup {
         _: &QueueHandle<Self>,
         output: wl_output::WlOutput,
     ) {
+        let config = self.config.read().expect("config lock poisoned");
         self.surfaces.retain(|_, surfaces| {
             surfaces.retain(|surface| surface.output != output);
             !surfaces.is_empty()
         });
-        surface::restack(&self.surfaces, &self.config);
+        surface::restack(&self.surfaces, &config);
     }
 }
 

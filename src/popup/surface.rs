@@ -66,6 +66,10 @@ impl NotificationSurface {
         }
     }
 
+    pub(super) fn update_placement(&self, placement: &PlacementConfig) {
+        self.layer.set_anchor(anchor_for(&placement.position));
+    }
+
     pub(super) fn draw(&mut self, pool: &mut SlotPool, fonts: &mut FontCtx, config: &PigeonConfig) {
         if !self.configured {
             return;

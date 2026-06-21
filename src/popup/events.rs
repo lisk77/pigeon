@@ -5,6 +5,7 @@ use std::sync::Arc;
 pub enum PopupEvent {
     Show(Arc<Notification>),
     Close(u32),
+    ReloadConfig,
 }
 
 pub type PopupSender = Sender<PopupEvent>;

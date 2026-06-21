@@ -128,14 +128,23 @@ fn draw_text(
         swash_cache,
         Color::rgb(0xFF, 0xFF, 0xFF),
         |x, y, width, height, color| {
-            let x_start = (x as u32 + x_offset).max(0) as u32;
-            let y_start = (y as u32 + y_offset).max(0) as u32;
-            let x_end = (x as u32 + x_offset + width as u32)
-                .min(canvas_width as u32)
-                .max(0) as u32;
-            let y_end = (y as u32 + y_offset + height as u32)
-                .min(canvas_height as u32)
-                .max(0) as u32;
+            let x_offset = i32::try_from(x_offset).unwrap_or(i32::MAX);
+            let y_offset = i32::try_from(y_offset).unwrap_or(i32::MAX);
+            let glyph_width = i32::try_from(width).unwrap_or(i32::MAX);
+            let glyph_height = i32::try_from(height).unwrap_or(i32::MAX);
+            let max_x = i32::try_from(canvas_width).unwrap_or(i32::MAX);
+            let max_y = i32::try_from(canvas_height).unwrap_or(i32::MAX);
+
+            let x_start = x.saturating_add(x_offset).clamp(0, max_x) as u32;
+            let y_start = y.saturating_add(y_offset).clamp(0, max_y) as u32;
+            let x_end = x
+                .saturating_add(x_offset)
+                .saturating_add(glyph_width)
+                .clamp(0, max_x) as u32;
+            let y_end = y
+                .saturating_add(y_offset)
+                .saturating_add(glyph_height)
+                .clamp(0, max_y) as u32;
 
             for y in y_start..y_end {
                 for x in x_start..x_end {

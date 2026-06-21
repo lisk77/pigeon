@@ -4,6 +4,7 @@ use std::{
     collections::HashMap,
     env,
     path::{Path, PathBuf},
+    sync::{Arc, RwLock},
 };
 
 mod notification;
@@ -15,6 +16,8 @@ pub use notification::NotificationConfig;
 pub use placement::{PlacementConfig, Position};
 pub use profiles::Profile;
 pub use timeouts::TimeoutConfig;
+
+pub type SharedConfig = Arc<RwLock<PigeonConfig>>;
 
 #[derive(Debug, Default, Deserialize)]
 #[serde(default)]
@@ -39,6 +42,20 @@ impl PigeonConfig {
 
     pub fn load_default() -> Result<Self, config::ConfigError> {
         Self::load(Self::default_path())
+    }
+
+    pub fn load_or_default(path: impl AsRef<Path>) -> Self {
+        match Self::load(path) {
+            Ok(config) => config,
+            Err(error) => {
+                eprintln!("config load failed; using defaults: {error}");
+                Self::default()
+            }
+        }
+    }
+
+    pub fn load_startup() -> Self {
+        Self::load_or_default(Self::default_path())
     }
 
     pub fn default_path() -> PathBuf {

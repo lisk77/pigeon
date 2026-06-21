@@ -26,7 +26,7 @@ use smithay_client_toolkit::{
 use surface::NotificationSurface;
 use tokio::sync::mpsc::UnboundedSender;
 
-use crate::{config::PigeonConfig, notification::Notification};
+use crate::{config::SharedConfig, notification::Notification};
 
 pub struct Popup {
     pub(in crate::popup) registry_state: RegistryState,
@@ -40,14 +40,14 @@ pub struct Popup {
     pub(in crate::popup) seat_state: SeatState,
     pub(in crate::popup) pointer: Option<wl_pointer::WlPointer>,
     pub(in crate::popup) dismiss_sender: UnboundedSender<u32>,
-    pub(in crate::popup) config: Arc<PigeonConfig>,
+    pub(in crate::popup) config: SharedConfig,
 }
 
 impl Popup {
     pub fn run(
         events: PopupReceiver,
         dismiss_sender: UnboundedSender<u32>,
-        config: Arc<PigeonConfig>,
+        config: SharedConfig,
     ) -> Result<(), Box<dyn std::error::Error>> {
         let connection = Connection::connect_to_env()?;
         let (globals, event_queue) = registry_queue_init(&connection)?;
@@ -61,10 +61,13 @@ impl Popup {
         let layer_shell = LayerShell::bind(&globals, &qh)?;
         let shm = Shm::bind(&globals, &qh)?;
 
-        let max_buffer_bytes = (config.notification.max_width as usize)
-            .checked_mul(config.notification.max_height as usize)
-            .and_then(|pixels| pixels.checked_mul(4))
-            .ok_or_else(|| std::io::Error::other("maximum card dimensions are too large"))?;
+        let max_buffer_bytes = {
+            let config = config.read().expect("config lock poisoned");
+            (config.notification.max_width as usize)
+                .checked_mul(config.notification.max_height as usize)
+                .and_then(|pixels| pixels.checked_mul(4))
+                .ok_or_else(|| std::io::Error::other("maximum card dimensions are too large"))?
+        };
         let pool = SlotPool::new(max_buffer_bytes, &shm)?;
         let mut popup = Self {
             registry_state: RegistryState::new(&globals),
@@ -97,18 +100,15 @@ impl Popup {
         match command {
             PopupEvent::Show(notification) => self.show(qh, notification),
             PopupEvent::Close(id) => self.close(id),
+            PopupEvent::ReloadConfig => self.reload_config(),
         }
     }
 
     fn show(&mut self, qh: &QueueHandle<Self>, notification: Arc<Notification>) {
+        let config = self.config.read().expect("config lock poisoned");
         let id = notification.id;
-        let width = self.config.notification.max_width;
-        let height = render::measure_card_height(
-            &notification,
-            width,
-            &mut self.fonts,
-            self.config.as_ref(),
-        );
+        let width = config.notification.max_width;
+        let height = render::measure_card_height(&notification, width, &mut self.fonts, &config);
 
         if let Some(surfaces) = self.surfaces.get_mut(&id) {
             for surface in surfaces.iter_mut() {
@@ -118,7 +118,7 @@ impl Popup {
                 surface.layer.set_size(surface.width, height);
                 surface.layer.commit();
             }
-            surface::restack(&self.surfaces, &self.config);
+            surface::restack(&self.surfaces, &config);
             return;
         }
 
@@ -134,16 +134,43 @@ impl Popup {
                     output,
                     width,
                     height,
-                    &self.config.placement,
+                    &config.placement,
                 )
             })
             .collect();
         self.surfaces.insert(id, surfaces);
-        surface::restack(&self.surfaces, &self.config);
+        surface::restack(&self.surfaces, &config);
     }
 
     pub(in crate::popup) fn close(&mut self, id: u32) {
+        let config = self.config.read().expect("config lock poisoned");
         self.surfaces.remove(&id);
-        surface::restack(&self.surfaces, &self.config);
+        surface::restack(&self.surfaces, &config);
+    }
+
+    fn reload_config(&mut self) {
+        let config = self.config.read().expect("config lock poisoned");
+        let width = config.notification.max_width;
+
+        for surfaces in self.surfaces.values_mut() {
+            for surface in surfaces {
+                surface.update_placement(&config.placement);
+                surface.width = width;
+                surface.height = render::measure_card_height(
+                    &surface.notification,
+                    width,
+                    &mut self.fonts,
+                    &config,
+                );
+                surface.layer.set_size(surface.width, surface.height);
+                if surface.configured {
+                    surface.draw(&mut self.pool, &mut self.fonts, &config);
+                } else {
+                    surface.layer.commit();
+                }
+            }
+        }
+
+        surface::restack(&self.surfaces, &config);
     }
 }

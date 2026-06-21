@@ -1,5 +1,5 @@
 use crate::{
-    config::PigeonConfig,
+    config::SharedConfig,
     images::decode_notification_image,
     notification::Notification,
     popup::{PopupEvent, PopupSender},
@@ -17,11 +17,11 @@ pub struct Pigeon {
     next_id: AtomicU32,
     notifications: Arc<Mutex<HashMap<u32, Arc<Notification>>>>,
     event_proxy: PopupSender,
-    config: Arc<PigeonConfig>,
+    config: SharedConfig,
 }
 
 impl Pigeon {
-    pub fn new(event_proxy: PopupSender, config: Arc<PigeonConfig>) -> Self {
+    pub fn new(event_proxy: PopupSender, config: SharedConfig) -> Self {
         Self {
             next_id: AtomicU32::new(1),
             notifications: Arc::new(Mutex::new(HashMap::new())),
@@ -164,7 +164,7 @@ impl Pigeon {
 }
 
 fn configured_timeout(
-    config: &PigeonConfig,
+    config: &SharedConfig,
     hints: &HashMap<String, OwnedValue>,
 ) -> std::time::Duration {
     let is_low_urgency = hints
@@ -172,6 +172,7 @@ fn configured_timeout(
         .and_then(|urgency| urgency.downcast_ref::<u8>().ok())
         == Some(0);
 
+    let config = config.read().expect("config lock poisoned");
     let timeout = if is_low_urgency {
         config.timeouts.low_timeout
     } else {

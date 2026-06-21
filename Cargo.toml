@@ -11,3 +11,4 @@ smithay-client-toolkit = { version = "0.19", default-features = false, features 
 cosmic-text = "0.19.0"
 config = "0.15.24"
 serde = "1.0.228"
+notify = "8.2"
