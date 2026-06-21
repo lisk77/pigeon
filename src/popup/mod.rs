@@ -134,6 +134,7 @@ impl Popup {
                     output,
                     width,
                     height,
+                    &self.config.placement,
                 )
             })
             .collect();

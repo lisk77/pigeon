@@ -94,15 +94,18 @@ impl LayerShellHandler for Popup {
                 .position(|surface| &surface.layer == layer)
                 .map(|output_index| (*id, output_index))
         }) {
-            let surface = &mut self.surfaces.get_mut(&id).unwrap()[output_index];
-            if configure.new_size.0 != 0 {
-                surface.width = configure.new_size.0;
+            {
+                let surface = &mut self.surfaces.get_mut(&id).unwrap()[output_index];
+                if configure.new_size.0 != 0 {
+                    surface.width = configure.new_size.0;
+                }
+                if configure.new_size.1 != 0 {
+                    surface.height = configure.new_size.1;
+                }
+                surface.configured = true;
+                surface.draw(&mut self.pool, &mut self.fonts, self.config.as_ref());
             }
-            if configure.new_size.1 != 0 {
-                surface.height = configure.new_size.1;
-            }
-            surface.configured = true;
-            surface.draw(&mut self.pool, &mut self.fonts, self.config.as_ref());
+            surface::restack(&self.surfaces, &self.config);
         }
     }
 }
@@ -147,6 +150,7 @@ impl OutputHandler for Popup {
                 output.clone(),
                 width,
                 height,
+                &self.config.placement,
             );
             self.surfaces.get_mut(&id).unwrap().push(surface);
         }
