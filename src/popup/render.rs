@@ -51,7 +51,7 @@ pub fn render_card(
     } else {
         outer_padding
     };
-    let text_width = (width - text_x - outer_padding).max(0);
+    let text_width = width.saturating_sub(text_x).saturating_sub(outer_padding);
     let summary_height = measure_text_height(
         fonts,
         &notification.summary,
@@ -60,6 +60,9 @@ pub fn render_card(
         true,
     );
     let body_y = outer_padding as f32 + summary_height + summary_body_gap;
+
+    let body_y = body_y.ceil() as u32;
+    let body_height = height.saturating_sub(body_y).saturating_sub(outer_padding);
 
     draw_text(
         canvas,
@@ -82,9 +85,9 @@ pub fn render_card(
         fonts,
         &notification.body,
         text_x,
-        body_y.ceil() as u32,
+        body_y,
         text_width,
-        (height - body_y.ceil() as u32 - outer_padding).max(0),
+        body_height,
         body_font_size,
         false,
     );
@@ -212,7 +215,9 @@ pub fn measure_card_height(
     } else {
         notification_config.outer_padding
     };
-    let text_width = (width - text_x - notification_config.outer_padding).max(0);
+    let text_width = width
+        .saturating_sub(text_x)
+        .saturating_sub(notification_config.outer_padding);
     let summary_height = measure_text_height(
         fonts,
         &notification.summary,
