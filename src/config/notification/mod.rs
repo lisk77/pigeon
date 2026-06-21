@@ -12,6 +12,7 @@ pub struct NotificationConfig {
     pub min_height: u32,
     pub max_height: u32,
     pub outer_padding: u32,
+    pub corner_radius: u32,
     #[serde(deserialize_with = "deserialize_rgba_color")]
     pub background_color: [u8; 4],
     pub thumbnail: thumbnail::ThumbnailConfig,
@@ -27,6 +28,7 @@ impl Default for NotificationConfig {
             min_height: 96,
             max_height: 480,
             outer_padding: 16,
+            corner_radius: 12,
             background_color: [0x20, 0x20, 0x20, 0xff],
             thumbnail: thumbnail::ThumbnailConfig::default(),
             summary: summary::SummaryConfig::default(),

@@ -25,9 +25,13 @@ pub fn render_card(
     config: &PigeonConfig,
 ) {
     let notification_config = &config.notification;
-    for pixel in canvas.chunks_exact_mut(4) {
-        pixel.copy_from_slice(&notification_config.background_color);
-    }
+    fill_rounded_background(
+        canvas,
+        width,
+        height,
+        notification_config.background_color,
+        notification_config.corner_radius,
+    );
 
     let outer_padding = notification_config.outer_padding;
     let thumbnail_size = notification_config.thumbnail.size;
@@ -91,6 +95,61 @@ pub fn render_card(
         body_font_size,
         false,
     );
+}
+
+fn fill_rounded_background(
+    canvas: &mut [u8],
+    width: u32,
+    height: u32,
+    background: [u8; 4],
+    corner_radius: u32,
+) {
+    for y in 0..height {
+        for x in 0..width {
+            let pixel = ((y * width + x) * 4) as usize;
+            let color = if rounded_rect_contains(x, y, width, height, corner_radius) {
+                background
+            } else {
+                [0, 0, 0, 0]
+            };
+            canvas[pixel..pixel + 4].copy_from_slice(&color);
+        }
+    }
+}
+
+fn rounded_rect_contains(x: u32, y: u32, width: u32, height: u32, corner_radius: u32) -> bool {
+    let radius = corner_radius.min(width / 2).min(height / 2);
+    if radius == 0 || (x >= radius && x < width - radius) || (y >= radius && y < height - radius) {
+        return true;
+    }
+
+    let center_x = if x < radius {
+        radius as u64 * 2
+    } else {
+        (width - radius) as u64 * 2
+    };
+    let center_y = if y < radius {
+        radius as u64 * 2
+    } else {
+        (height - radius) as u64 * 2
+    };
+    let pixel_x = x as u64 * 2 + 1;
+    let pixel_y = y as u64 * 2 + 1;
+    let radius = radius as u64 * 2;
+
+    center_x.abs_diff(pixel_x).pow(2) + center_y.abs_diff(pixel_y).pow(2) <= radius.pow(2)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::rounded_rect_contains;
+
+    #[test]
+    fn rounded_mask_clears_outer_corner_pixels() {
+        assert!(!rounded_rect_contains(0, 0, 20, 20, 4));
+        assert!(rounded_rect_contains(3, 0, 20, 20, 4));
+        assert!(rounded_rect_contains(10, 10, 20, 20, 4));
+    }
 }
 
 fn draw_text(
