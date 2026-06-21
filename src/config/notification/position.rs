@@ -2,8 +2,8 @@ use serde::Deserialize;
 
 #[derive(Debug, Deserialize)]
 #[serde(default)]
-pub struct PlacementConfig {
-    pub position: Position,
+pub struct PositionConfig {
+    pub anchor: Anchor,
     pub top_margin: u32,
     pub bottom_margin: u32,
     pub left_margin: u32,
@@ -13,7 +13,7 @@ pub struct PlacementConfig {
 
 #[derive(Debug, Default, Deserialize)]
 #[serde(rename_all = "kebab-case")]
-pub enum Position {
+pub enum Anchor {
     Top,
     TopLeft,
     #[default]
@@ -25,10 +25,10 @@ pub enum Position {
     Right,
 }
 
-impl Default for PlacementConfig {
+impl Default for PositionConfig {
     fn default() -> Self {
         Self {
-            position: Position::TopRight,
+            anchor: Anchor::TopRight,
             top_margin: 16,
             bottom_margin: 0,
             left_margin: 0,

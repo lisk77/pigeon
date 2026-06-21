@@ -19,7 +19,7 @@ use super::render::{self, text::FontCtx};
 use crate::{
     config::{
         PigeonConfig,
-        notification::{PlacementConfig, Position},
+        notification::{Anchor as PositionAnchor, PositionConfig},
     },
     notification::Notification,
 };
@@ -47,7 +47,7 @@ impl NotificationSurface {
         height: u32,
         full_width: u32,
         full_height: u32,
-        placement: &PlacementConfig,
+        position: &PositionConfig,
     ) -> Self {
         let wl_surface = compositor.create_surface(qh);
         let layer = layer_shell.create_layer_surface(
@@ -57,7 +57,7 @@ impl NotificationSurface {
             Some("pigeon-notification"),
             Some(&output),
         );
-        layer.set_anchor(anchor_for(&placement.position));
+        layer.set_anchor(anchor_for(&position.anchor));
         layer.set_keyboard_interactivity(KeyboardInteractivity::None);
         layer.set_exclusive_zone(0);
         layer.set_size(width, height);
@@ -75,8 +75,8 @@ impl NotificationSurface {
         }
     }
 
-    pub(super) fn update_placement(&self, placement: &PlacementConfig) {
-        self.layer.set_anchor(anchor_for(&placement.position));
+    pub(super) fn update_position(&self, position: &PositionConfig) {
+        self.layer.set_anchor(anchor_for(&position.anchor));
     }
 
     pub(super) fn draw(&mut self, pool: &mut SlotPool, fonts: &mut FontCtx, config: &PigeonConfig) {
@@ -117,47 +117,47 @@ impl NotificationSurface {
     }
 }
 
-fn anchor_for(position: &Position) -> Anchor {
-    match position {
-        Position::Top => Anchor::TOP,
-        Position::TopLeft => Anchor::TOP | Anchor::LEFT,
-        Position::TopRight => Anchor::TOP | Anchor::RIGHT,
-        Position::Bottom => Anchor::BOTTOM,
-        Position::BottomLeft => Anchor::BOTTOM | Anchor::LEFT,
-        Position::BottomRight => Anchor::BOTTOM | Anchor::RIGHT,
-        Position::Left => Anchor::LEFT,
-        Position::Right => Anchor::RIGHT,
+fn anchor_for(anchor: &PositionAnchor) -> Anchor {
+    match anchor {
+        PositionAnchor::Top => Anchor::TOP,
+        PositionAnchor::TopLeft => Anchor::TOP | Anchor::LEFT,
+        PositionAnchor::TopRight => Anchor::TOP | Anchor::RIGHT,
+        PositionAnchor::Bottom => Anchor::BOTTOM,
+        PositionAnchor::BottomLeft => Anchor::BOTTOM | Anchor::LEFT,
+        PositionAnchor::BottomRight => Anchor::BOTTOM | Anchor::RIGHT,
+        PositionAnchor::Left => Anchor::LEFT,
+        PositionAnchor::Right => Anchor::RIGHT,
     }
 }
 
 pub(super) fn restack(surfaces: &BTreeMap<u32, Vec<NotificationSurface>>, config: &PigeonConfig) {
-    let placement = &config.notification.placement;
-    let mut offset = match placement.position {
-        Position::Top | Position::TopLeft | Position::TopRight => placement.top_margin as i32,
-        Position::Bottom | Position::BottomLeft | Position::BottomRight => {
-            placement.bottom_margin as i32
+    let position = &config.notification.position;
+    let mut offset = match position.anchor {
+        PositionAnchor::Top | PositionAnchor::TopLeft | PositionAnchor::TopRight => {
+            position.top_margin as i32
         }
-        Position::Left => placement.left_margin as i32,
-        Position::Right => placement.right_margin as i32,
+        PositionAnchor::Bottom | PositionAnchor::BottomLeft | PositionAnchor::BottomRight => {
+            position.bottom_margin as i32
+        }
+        PositionAnchor::Left => position.left_margin as i32,
+        PositionAnchor::Right => position.right_margin as i32,
     };
-    let notification_gap = placement.notification_gap as i32;
+    let notification_gap = position.notification_gap as i32;
 
     for surfaces in surfaces.values() {
-        let size = surfaces
-            .first()
-            .map_or(0, |surface| match placement.position {
-                Position::Left | Position::Right => surface.width,
-                _ => surface.height,
-            }) as i32;
-        let margins = match placement.position {
-            Position::Top => (offset, 0, 0, 0),
-            Position::TopLeft => (offset, 0, 0, placement.left_margin as i32),
-            Position::TopRight => (offset, placement.right_margin as i32, 0, 0),
-            Position::Bottom => (0, 0, offset, 0),
-            Position::BottomLeft => (0, 0, offset, placement.left_margin as i32),
-            Position::BottomRight => (0, placement.right_margin as i32, offset, 0),
-            Position::Left => (0, 0, 0, offset),
-            Position::Right => (0, offset, 0, 0),
+        let size = surfaces.first().map_or(0, |surface| match position.anchor {
+            PositionAnchor::Left | PositionAnchor::Right => surface.width,
+            _ => surface.height,
+        }) as i32;
+        let margins = match position.anchor {
+            PositionAnchor::Top => (offset, 0, 0, 0),
+            PositionAnchor::TopLeft => (offset, 0, 0, position.left_margin as i32),
+            PositionAnchor::TopRight => (offset, position.right_margin as i32, 0, 0),
+            PositionAnchor::Bottom => (0, 0, offset, 0),
+            PositionAnchor::BottomLeft => (0, 0, offset, position.left_margin as i32),
+            PositionAnchor::BottomRight => (0, position.right_margin as i32, offset, 0),
+            PositionAnchor::Left => (0, 0, 0, offset),
+            PositionAnchor::Right => (0, offset, 0, 0),
         };
 
         for surface in surfaces {

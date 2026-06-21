@@ -27,7 +27,7 @@ use surface::NotificationSurface;
 use tokio::sync::mpsc::UnboundedSender;
 
 use crate::{
-    config::{PigeonConfig, SharedConfig, notification::Position},
+    config::{PigeonConfig, SharedConfig, notification::Anchor},
     notification::Notification,
 };
 
@@ -152,7 +152,7 @@ impl Popup {
                     visible_height,
                     width,
                     height,
-                    &config.notification.placement,
+                    &config.notification.position,
                 ))
             })
             .collect();
@@ -176,34 +176,33 @@ impl Popup {
             return Some((width, height));
         };
 
-        let placement = &config.notification.placement;
-        let (axis_size, leading_margin, trailing_margin, new_surface_size) =
-            match placement.position {
-                Position::Top | Position::TopLeft | Position::TopRight => (
-                    output_height,
-                    placement.top_margin,
-                    placement.bottom_margin,
-                    height,
-                ),
-                Position::Bottom | Position::BottomLeft | Position::BottomRight => (
-                    output_height,
-                    placement.bottom_margin,
-                    placement.top_margin,
-                    height,
-                ),
-                Position::Left => (
-                    output_width,
-                    placement.left_margin,
-                    placement.right_margin,
-                    width,
-                ),
-                Position::Right => (
-                    output_width,
-                    placement.right_margin,
-                    placement.left_margin,
-                    width,
-                ),
-            };
+        let position = &config.notification.position;
+        let (axis_size, leading_margin, trailing_margin, new_surface_size) = match position.anchor {
+            Anchor::Top | Anchor::TopLeft | Anchor::TopRight => (
+                output_height,
+                position.top_margin,
+                position.bottom_margin,
+                height,
+            ),
+            Anchor::Bottom | Anchor::BottomLeft | Anchor::BottomRight => (
+                output_height,
+                position.bottom_margin,
+                position.top_margin,
+                height,
+            ),
+            Anchor::Left => (
+                output_width,
+                position.left_margin,
+                position.right_margin,
+                width,
+            ),
+            Anchor::Right => (
+                output_width,
+                position.right_margin,
+                position.left_margin,
+                width,
+            ),
+        };
 
         let mut offset = leading_margin;
         for surfaces in self.surfaces.values() {
@@ -211,13 +210,13 @@ impl Popup {
                 continue;
             };
 
-            let size = match placement.position {
-                Position::Left | Position::Right => surface.width,
+            let size = match position.anchor {
+                Anchor::Left | Anchor::Right => surface.width,
                 _ => surface.height,
             };
             offset = offset
                 .saturating_add(size)
-                .saturating_add(placement.notification_gap);
+                .saturating_add(position.notification_gap);
         }
 
         let available = axis_size
@@ -227,8 +226,8 @@ impl Popup {
             return None;
         }
 
-        Some(match placement.position {
-            Position::Left | Position::Right => (new_surface_size.min(available), height),
+        Some(match position.anchor {
+            Anchor::Left | Anchor::Right => (new_surface_size.min(available), height),
             _ => (width, new_surface_size.min(available)),
         })
     }
@@ -239,16 +238,16 @@ impl Popup {
                 continue;
             };
 
-            let placement = &config.notification.placement;
-            let (axis_size, leading_margin, trailing_margin) = match placement.position {
-                Position::Top | Position::TopLeft | Position::TopRight => {
-                    (output_height, placement.top_margin, placement.bottom_margin)
+            let position = &config.notification.position;
+            let (axis_size, leading_margin, trailing_margin) = match position.anchor {
+                Anchor::Top | Anchor::TopLeft | Anchor::TopRight => {
+                    (output_height, position.top_margin, position.bottom_margin)
                 }
-                Position::Bottom | Position::BottomLeft | Position::BottomRight => {
-                    (output_height, placement.bottom_margin, placement.top_margin)
+                Anchor::Bottom | Anchor::BottomLeft | Anchor::BottomRight => {
+                    (output_height, position.bottom_margin, position.top_margin)
                 }
-                Position::Left => (output_width, placement.left_margin, placement.right_margin),
-                Position::Right => (output_width, placement.right_margin, placement.left_margin),
+                Anchor::Left => (output_width, position.left_margin, position.right_margin),
+                Anchor::Right => (output_width, position.right_margin, position.left_margin),
             };
 
             let mut offset = leading_margin;
@@ -258,8 +257,8 @@ impl Popup {
                     continue;
                 };
 
-                let full_size = match placement.position {
-                    Position::Left | Position::Right => surface.full_width,
+                let full_size = match position.anchor {
+                    Anchor::Left | Anchor::Right => surface.full_width,
                     _ => surface.full_height,
                 };
                 let available = axis_size
@@ -270,8 +269,8 @@ impl Popup {
                     continue;
                 }
 
-                let (width, height) = match placement.position {
-                    Position::Left | Position::Right => (visible_size, surface.full_height),
+                let (width, height) = match position.anchor {
+                    Anchor::Left | Anchor::Right => (visible_size, surface.full_height),
                     _ => (surface.full_width, visible_size),
                 };
                 if surface.width != width || surface.height != height {
@@ -287,7 +286,7 @@ impl Popup {
 
                 offset = offset
                     .saturating_add(visible_size)
-                    .saturating_add(placement.notification_gap);
+                    .saturating_add(position.notification_gap);
             }
         }
 
@@ -336,7 +335,7 @@ impl Popup {
 
         for surfaces in self.surfaces.values_mut() {
             for surface in surfaces {
-                surface.update_placement(&config.notification.placement);
+                surface.update_position(&config.notification.position);
                 surface.full_width = width;
                 surface.full_height = render::card::measure_card_height(
                     &surface.notification,
