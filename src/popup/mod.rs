@@ -8,7 +8,7 @@ pub use events::{PopupEvent, PopupReceiver, PopupSender, channel};
 use std::collections::BTreeMap;
 use std::sync::Arc;
 
-use render::FontCtx;
+use render::text::FontCtx;
 use smithay_client_toolkit::{
     compositor::CompositorState,
     output::OutputState,
@@ -116,7 +116,8 @@ impl Popup {
         let config = config_handle.read().expect("config lock poisoned");
         let id = notification.id;
         let width = config.notification.max_width;
-        let height = render::measure_card_height(&notification, width, &mut self.fonts, &config);
+        let height =
+            render::card::measure_card_height(&notification, width, &mut self.fonts, &config);
 
         if self
             .surfaces
@@ -337,7 +338,7 @@ impl Popup {
             for surface in surfaces {
                 surface.update_placement(&config.placement);
                 surface.full_width = width;
-                surface.full_height = render::measure_card_height(
+                surface.full_height = render::card::measure_card_height(
                     &surface.notification,
                     width,
                     &mut self.fonts,

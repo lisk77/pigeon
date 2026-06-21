@@ -15,7 +15,7 @@ use smithay_client_toolkit::{
 };
 
 use super::Popup;
-use super::render::{self, FontCtx};
+use super::render::{self, text::FontCtx};
 use crate::{
     config::{PigeonConfig, PlacementConfig, Position},
     notification::Notification,
@@ -91,7 +91,7 @@ impl NotificationSurface {
             )
             .expect("allocate notification buffer");
 
-        render::render_card(
+        render::card::render_card(
             canvas,
             self.width,
             self.height,
