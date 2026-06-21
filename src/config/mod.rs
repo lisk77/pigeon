@@ -12,7 +12,7 @@ mod profiles;
 mod timeouts;
 
 pub use notification::NotificationConfig;
-pub use profiles::Profile;
+pub use profiles::{Profile, ProfileConfig};
 pub use timeouts::TimeoutConfig;
 
 pub type SharedConfig = Arc<RwLock<PigeonConfig>>;
@@ -22,8 +22,8 @@ pub type SharedConfig = Arc<RwLock<PigeonConfig>>;
 pub struct PigeonConfig {
     pub timeouts: TimeoutConfig,
     pub notification: NotificationConfig,
-    #[serde(default)]
-    profiles: HashMap<String, Profile>,
+    pub profile: ProfileConfig,
+    pub profiles: HashMap<String, Profile>,
 }
 
 impl PigeonConfig {
