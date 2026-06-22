@@ -58,20 +58,10 @@ impl Pigeon {
         summary: String,
         body: String,
         actions: Vec<String>,
-        mut hints: HashMap<String, OwnedValue>,
+        hints: HashMap<String, OwnedValue>,
         expire_timeout: i32,
         #[zbus(signal_emitter)] emitter: SignalEmitter<'_>,
     ) -> u32 {
-        let actions: HashMap<String, String> = actions
-            .chunks_exact(2)
-            .map(|pair| (pair[0].clone(), pair[1].clone()))
-            .collect();
-
-        let img = decode_notification_image(&hints, &app_icon);
-
-        hints.remove("image-data");
-        hints.remove("image_data");
-
         let mut notification = Notification {
             id: 0,
             replaces_id,
@@ -79,8 +69,8 @@ impl Pigeon {
             app_icon,
             summary,
             body,
-            img,
-            actions,
+            img: None,
+            actions: HashMap::new(),
             hints,
         };
 
@@ -95,6 +85,14 @@ impl Pigeon {
                 self.next_id.fetch_add(1, Ordering::Relaxed)
             };
         }
+
+        notification.img = decode_notification_image(&notification.hints, &notification.app_icon);
+        notification.hints.remove("image-data");
+        notification.hints.remove("image_data");
+        notification.actions = actions
+            .chunks_exact(2)
+            .map(|pair| (pair[0].clone(), pair[1].clone()))
+            .collect();
 
         let timeout = match expire_timeout {
             0 => None,

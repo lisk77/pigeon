@@ -1,5 +1,8 @@
 use crate::{
-    config::PigeonConfig,
+    config::{
+        PigeonConfig,
+        notification::{ProgressAlignment, ProgressConfig, ProgressDirection},
+    },
     notification::Notification,
     popup::render::{
         text::{FontCtx, draw_text, measure_text_height},
@@ -18,6 +21,13 @@ pub fn render_card(
     config: &PigeonConfig,
 ) {
     let notification_config = &config.notification;
+    let progress = progress_rect(
+        notification,
+        full_width,
+        full_height,
+        notification_config.border.width,
+        &notification_config.progress,
+    );
     fill_notification_background(
         canvas,
         width,
@@ -28,6 +38,8 @@ pub fn render_card(
         notification_config.border.color,
         notification_config.border.width,
         notification_config.corner_radius,
+        progress,
+        notification_config.progress.color,
     );
 
     let outer_padding = notification_config
@@ -110,6 +122,8 @@ fn fill_notification_background(
     border: [u8; 4],
     border_width: u32,
     corner_radius: u32,
+    progress: Option<ProgressRect>,
+    progress_color: [u8; 4],
 ) {
     let border_width = border_width.min(full_width / 2).min(full_height / 2);
     let inner_width = full_width.saturating_sub(border_width.saturating_mul(2));
@@ -123,7 +137,9 @@ fn fill_notification_background(
                 _ if !rounded_rect_contains(x, y, full_width, full_height, corner_radius) => {
                     [0, 0, 0, 0]
                 }
-                _ if border_width == 0 => background,
+                _ if border_width == 0 => {
+                    apply_progress(background, x, y, progress, progress_color)
+                }
                 _ if inner_width > 0
                     && inner_height > 0
                     && x >= border_width
@@ -136,13 +152,124 @@ fn fill_notification_background(
                         inner_radius,
                     ) =>
                 {
-                    background
+                    apply_progress(background, x, y, progress, progress_color)
                 }
                 _ => border,
             };
             canvas[pixel..pixel + 4].copy_from_slice(&color);
         }
     }
+}
+
+#[derive(Clone, Copy)]
+struct ProgressRect {
+    x: u32,
+    y: u32,
+    width: u32,
+    height: u32,
+}
+
+impl ProgressRect {
+    fn contains(self, x: u32, y: u32) -> bool {
+        x >= self.x
+            && x < self.x.saturating_add(self.width)
+            && y >= self.y
+            && y < self.y.saturating_add(self.height)
+    }
+}
+
+fn progress_rect(
+    notification: &Notification,
+    full_width: u32,
+    full_height: u32,
+    border_width: u32,
+    config: &ProgressConfig,
+) -> Option<ProgressRect> {
+    let value = notification.progress()?.clamp(0, 100) as u32;
+    if value == 0 {
+        return None;
+    }
+
+    let border_width = border_width.min(full_width / 2).min(full_height / 2);
+    let inner_width = full_width.saturating_sub(border_width.saturating_mul(2));
+    let inner_height = full_height.saturating_sub(border_width.saturating_mul(2));
+    let inset = config.inset.min(inner_width / 2).min(inner_height / 2);
+    let x = border_width.saturating_add(inset);
+    let y = border_width.saturating_add(inset);
+    let width = inner_width.saturating_sub(inset.saturating_mul(2));
+    let height = inner_height.saturating_sub(inset.saturating_mul(2));
+
+    if config.direction.is_horizontal() {
+        let thickness = config.thickness.resolve(height);
+        let fill_width = width.saturating_mul(value) / 100;
+        if thickness == 0 || fill_width == 0 {
+            return None;
+        }
+
+        let y = y.saturating_add(aligned_offset(height, thickness, &config.alignment));
+        let x = match config.direction {
+            ProgressDirection::RightToLeft => x.saturating_add(width.saturating_sub(fill_width)),
+            _ => x,
+        };
+        Some(ProgressRect {
+            x,
+            y,
+            width: fill_width,
+            height: thickness,
+        })
+    } else {
+        let thickness = config.thickness.resolve(width);
+        let fill_height = height.saturating_mul(value) / 100;
+        if thickness == 0 || fill_height == 0 {
+            return None;
+        }
+
+        let x = x.saturating_add(aligned_offset(width, thickness, &config.alignment));
+        let y = match config.direction {
+            ProgressDirection::BottomToTop => y.saturating_add(height.saturating_sub(fill_height)),
+            _ => y,
+        };
+        Some(ProgressRect {
+            x,
+            y,
+            width: thickness,
+            height: fill_height,
+        })
+    }
+}
+
+fn aligned_offset(available: u32, thickness: u32, alignment: &ProgressAlignment) -> u32 {
+    match alignment {
+        ProgressAlignment::Start => 0,
+        ProgressAlignment::Center => available.saturating_sub(thickness) / 2,
+        ProgressAlignment::End => available.saturating_sub(thickness),
+    }
+}
+
+fn apply_progress(
+    background: [u8; 4],
+    x: u32,
+    y: u32,
+    progress: Option<ProgressRect>,
+    progress_color: [u8; 4],
+) -> [u8; 4] {
+    if progress.is_some_and(|progress| progress.contains(x, y)) {
+        blend_color(background, progress_color)
+    } else {
+        background
+    }
+}
+
+fn blend_color(background: [u8; 4], foreground: [u8; 4]) -> [u8; 4] {
+    let alpha = u16::from(foreground[3]);
+    let inverse_alpha = 255 - alpha;
+
+    [
+        ((u16::from(foreground[0]) * alpha + u16::from(background[0]) * inverse_alpha) / 255) as u8,
+        ((u16::from(foreground[1]) * alpha + u16::from(background[1]) * inverse_alpha) / 255) as u8,
+        ((u16::from(foreground[2]) * alpha + u16::from(background[2]) * inverse_alpha) / 255) as u8,
+        background[3].max(foreground[3]),
+    ]
 }
 
 fn rounded_rect_contains(x: u32, y: u32, width: u32, height: u32, corner_radius: u32) -> bool {

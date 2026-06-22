@@ -3,10 +3,12 @@ use serde::{Deserialize, Deserializer};
 mod body;
 mod border;
 mod position;
+mod progress;
 mod summary;
 mod thumbnail;
 
 pub use position::{Anchor, PositionConfig};
+pub use progress::{ProgressAlignment, ProgressConfig, ProgressDirection};
 
 #[derive(Debug, Deserialize)]
 #[serde(default)]
@@ -20,6 +22,7 @@ pub struct NotificationConfig {
     #[serde(deserialize_with = "deserialize_rgba_color")]
     pub background_color: [u8; 4],
     pub position: position::PositionConfig,
+    pub progress: progress::ProgressConfig,
     pub border: border::BorderConfig,
     pub thumbnail: thumbnail::ThumbnailConfig,
     pub summary: summary::SummaryConfig,
@@ -37,6 +40,7 @@ impl Default for NotificationConfig {
             corner_radius: 12,
             background_color: [0x20, 0x20, 0x20, 0xff],
             position: position::PositionConfig::default(),
+            progress: progress::ProgressConfig::default(),
             border: border::BorderConfig::default(),
             thumbnail: thumbnail::ThumbnailConfig::default(),
             summary: summary::SummaryConfig::default(),
