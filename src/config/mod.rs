@@ -96,10 +96,17 @@ impl PigeonConfig {
         notification: &Notification,
     ) -> Option<(RuleAction, NotificationConfig)> {
         match self.profile(name) {
-            Some(profile) => Some((
-                profile.action_for(notification),
-                profile.notification.apply_to(&self.notification),
-            )),
+            Some(profile) => {
+                let profile_style = profile.notification.apply_to(&self.notification);
+
+                match profile.matching_rule(notification) {
+                    Some(rule) => Some((
+                        rule.action.unwrap_or(profile.default_action),
+                        rule.notification.apply_to(&profile_style),
+                    )),
+                    None => Some((profile.default_action, profile_style)),
+                }
+            }
             None if name == "default" => Some((RuleAction::Allow, self.notification.clone())),
             None => None,
         }

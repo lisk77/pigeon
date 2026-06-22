@@ -41,11 +41,13 @@ impl Default for Profile {
 }
 
 impl Profile {
+    pub fn matching_rule(&self, notification: &Notification) -> Option<&Rule> {
+        self.rules.iter().find(|rule| rule.matches(notification))
+    }
+
     pub fn action_for(&self, notification: &Notification) -> RuleAction {
-        self.rules
-            .iter()
-            .find(|rule| rule.matches(notification))
-            .map(|rule| rule.action)
+        self.matching_rule(notification)
+            .and_then(|rule| rule.action)
             .unwrap_or(self.default_action)
     }
 }
