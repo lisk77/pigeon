@@ -30,7 +30,7 @@ pub fn render_card(
         height,
         full_width,
         full_height,
-        notification_config.background_color,
+        notification_config.color,
         notification_config.border.color,
         notification_config.border.width,
         notification_config.corner_radius,

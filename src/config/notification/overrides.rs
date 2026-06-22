@@ -11,7 +11,7 @@ pub struct NotificationStyleOverride {
     pub outer_padding: Option<u32>,
     pub corner_radius: Option<u32>,
     #[serde(default, deserialize_with = "deserialize_optional_rgba_color")]
-    pub background_color: Option<[u8; 4]>,
+    pub color: Option<[u8; 4]>,
     pub border: BorderOverride,
     pub thumbnail: ThumbnailOverride,
     pub summary: SummaryOverride,
@@ -29,8 +29,8 @@ impl NotificationStyleOverride {
         if let Some(value) = self.corner_radius {
             resolved.corner_radius = value;
         }
-        if let Some(value) = self.background_color {
-            resolved.background_color = value;
+        if let Some(value) = self.color {
+            resolved.color = value;
         }
 
         self.border.apply_to(&mut resolved);

@@ -22,7 +22,7 @@ pub struct NotificationConfig {
     pub outer_padding: u32,
     pub corner_radius: u32,
     #[serde(deserialize_with = "deserialize_rgba_color")]
-    pub background_color: [u8; 4],
+    pub color: [u8; 4],
     pub position: position::PositionConfig,
     pub progress: progress::ProgressConfig,
     pub border: border::BorderConfig,
@@ -40,7 +40,7 @@ impl Default for NotificationConfig {
             max_height: 480,
             outer_padding: 16,
             corner_radius: 12,
-            background_color: [0x20, 0x20, 0x20, 0xff],
+            color: [0x20, 0x20, 0x20, 0xff],
             position: position::PositionConfig::default(),
             progress: progress::ProgressConfig::default(),
             border: border::BorderConfig::default(),

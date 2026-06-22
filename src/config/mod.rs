@@ -74,28 +74,34 @@ impl PigeonConfig {
         self.profiles.get(name)
     }
 
-    pub fn selected_profile(&self, notification: &Notification) -> Option<&Profile> {
-        let override_profile = self
-            .profile
-            .allow_profile_override
-            .then(|| notification.profile())
-            .flatten();
-
-        override_profile
-            .and_then(|name| self.profile(name))
-            .or_else(|| self.profile(&self.profile.active))
-    }
-
     pub fn presentation_for(
         &self,
         notification: &Notification,
     ) -> (RuleAction, NotificationConfig) {
-        match self.selected_profile(notification) {
-            Some(profile) => (
+        if self.profile.allow_profile_override {
+            if let Some(name) = notification.profile() {
+                if let Some(presentation) = self.profile_presentation(name, notification) {
+                    return presentation;
+                }
+            }
+        }
+
+        self.profile_presentation(&self.profile.active, notification)
+            .expect("active profile validated during config load")
+    }
+
+    fn profile_presentation(
+        &self,
+        name: &str,
+        notification: &Notification,
+    ) -> Option<(RuleAction, NotificationConfig)> {
+        match self.profile(name) {
+            Some(profile) => Some((
                 profile.action_for(notification),
                 profile.notification.apply_to(&self.notification),
-            ),
-            None => (RuleAction::Allow, self.notification.clone()),
+            )),
+            None if name == "default" => Some((RuleAction::Allow, self.notification.clone())),
+            None => None,
         }
     }
 
@@ -117,9 +123,7 @@ impl PigeonConfig {
             ));
         }
 
-        if (self.profile.active != "default" || !self.profiles.is_empty())
-            && !self.profiles.contains_key(&self.profile.active)
-        {
+        if self.profile.active != "default" && !self.profiles.contains_key(&self.profile.active) {
             return Err(config::ConfigError::Message(format!(
                 "active profile {:?} is not defined",
                 self.profile.active
