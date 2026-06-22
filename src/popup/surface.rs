@@ -93,7 +93,6 @@ impl NotificationSurface {
                 wl_shm::Format::Argb8888,
             )
             .expect("allocate notification buffer");
-
         render::card::render_card(
             canvas,
             self.width,
@@ -103,6 +102,7 @@ impl NotificationSurface {
             &self.notification,
             fonts,
         );
+        fonts.clear_raster_cache();
 
         self.layer
             .wl_surface()
@@ -131,41 +131,53 @@ fn anchor_for(anchor: &PositionAnchor) -> Anchor {
 
 pub(super) fn restack(surfaces: &BTreeMap<u32, Vec<NotificationSurface>>, config: &PigeonConfig) {
     let position = &config.notification.position;
-    let mut offset = match position.anchor {
-        PositionAnchor::Top | PositionAnchor::TopLeft | PositionAnchor::TopRight => {
-            position.top_margin as i32
+    let mut outputs = Vec::new();
+    for surface in surfaces.values().flatten() {
+        if !outputs.iter().any(|output| output == &surface.output) {
+            outputs.push(surface.output.clone());
         }
-        PositionAnchor::Bottom | PositionAnchor::BottomLeft | PositionAnchor::BottomRight => {
-            position.bottom_margin as i32
-        }
-        PositionAnchor::Left => position.left_margin as i32,
-        PositionAnchor::Right => position.right_margin as i32,
-    };
-    let notification_gap = position.notification_gap as i32;
+    }
 
-    for surfaces in surfaces.values() {
-        let size = surfaces.first().map_or(0, |surface| match position.anchor {
-            PositionAnchor::Left | PositionAnchor::Right => surface.width,
-            _ => surface.height,
-        }) as i32;
-        let margins = match position.anchor {
-            PositionAnchor::Top => (offset, 0, 0, 0),
-            PositionAnchor::TopLeft => (offset, 0, 0, position.left_margin as i32),
-            PositionAnchor::TopRight => (offset, position.right_margin as i32, 0, 0),
-            PositionAnchor::Bottom => (0, 0, offset, 0),
-            PositionAnchor::BottomLeft => (0, 0, offset, position.left_margin as i32),
-            PositionAnchor::BottomRight => (0, position.right_margin as i32, offset, 0),
-            PositionAnchor::Left => (0, 0, 0, offset),
-            PositionAnchor::Right => (0, offset, 0, 0),
+    for output in outputs {
+        let mut offset = match position.anchor {
+            PositionAnchor::Top | PositionAnchor::TopLeft | PositionAnchor::TopRight => {
+                position.top_margin as i32
+            }
+            PositionAnchor::Bottom | PositionAnchor::BottomLeft | PositionAnchor::BottomRight => {
+                position.bottom_margin as i32
+            }
+            PositionAnchor::Left => position.left_margin as i32,
+            PositionAnchor::Right => position.right_margin as i32,
         };
 
-        for surface in surfaces {
+        for notification_surfaces in surfaces.values() {
+            let Some(surface) = notification_surfaces
+                .iter()
+                .find(|surface| surface.output == output)
+            else {
+                continue;
+            };
+
+            let margins = match position.anchor {
+                PositionAnchor::Top => (offset, 0, 0, 0),
+                PositionAnchor::TopLeft => (offset, 0, 0, position.left_margin as i32),
+                PositionAnchor::TopRight => (offset, position.right_margin as i32, 0, 0),
+                PositionAnchor::Bottom => (0, 0, offset, 0),
+                PositionAnchor::BottomLeft => (0, 0, offset, position.left_margin as i32),
+                PositionAnchor::BottomRight => (0, position.right_margin as i32, offset, 0),
+                PositionAnchor::Left => (0, 0, 0, offset),
+                PositionAnchor::Right => (0, offset, 0, 0),
+            };
             surface
                 .layer
                 .set_margin(margins.0, margins.1, margins.2, margins.3);
             surface.layer.commit();
-        }
 
-        offset += size + notification_gap;
+            let size = match position.anchor {
+                PositionAnchor::Left | PositionAnchor::Right => surface.width,
+                _ => surface.height,
+            } as i32;
+            offset += size + position.notification_gap as i32;
+        }
     }
 }

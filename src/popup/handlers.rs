@@ -21,7 +21,7 @@ use smithay_client_toolkit::{
 };
 
 use super::Popup;
-use super::surface::{self, NotificationSurface};
+use super::surface;
 
 impl CompositorHandler for Popup {
     fn scale_factor_changed(
@@ -73,11 +73,11 @@ impl LayerShellHandler for Popup {
         }) {
             self.surfaces.get_mut(&id).unwrap().remove(output_index);
             if self.surfaces[&id].is_empty() {
-                self.close(qh, id);
-            } else {
-                let config = self.config.read().expect("config lock poisoned");
-                surface::restack(&self.surfaces, &config);
+                self.surfaces.remove(&id);
             }
+            let config_handle = std::sync::Arc::clone(&self.config);
+            let config = config_handle.read().expect("config lock poisoned");
+            self.reflow(qh, &config);
         }
     }
 
@@ -123,46 +123,10 @@ impl OutputHandler for Popup {
         &mut self.output_state
     }
 
-    fn new_output(&mut self, _: &Connection, qh: &QueueHandle<Self>, output: wl_output::WlOutput) {
-        let missing = self
-            .surfaces
-            .iter()
-            .filter_map(|(id, surfaces)| {
-                if surfaces.iter().any(|surface| surface.output == output) {
-                    None
-                } else {
-                    surfaces.first().map(|surface| {
-                        (
-                            *id,
-                            surface.notification.clone(),
-                            surface.width,
-                            surface.height,
-                            surface.full_width,
-                            surface.full_height,
-                        )
-                    })
-                }
-            })
-            .collect::<Vec<_>>();
-
-        let config = self.config.read().expect("config lock poisoned");
-
-        for (id, notification, width, height, full_width, full_height) in missing {
-            let surface = NotificationSurface::new(
-                qh,
-                &self.compositor,
-                &self.layer_shell,
-                notification,
-                output.clone(),
-                width,
-                height,
-                full_width,
-                full_height,
-                &config.notification.position,
-            );
-            self.surfaces.get_mut(&id).unwrap().push(surface);
-        }
-        surface::restack(&self.surfaces, &config);
+    fn new_output(&mut self, _: &Connection, qh: &QueueHandle<Self>, _: wl_output::WlOutput) {
+        let config_handle = std::sync::Arc::clone(&self.config);
+        let config = config_handle.read().expect("config lock poisoned");
+        self.reflow(qh, &config);
     }
 
     fn update_output(&mut self, _: &Connection, _: &QueueHandle<Self>, _: wl_output::WlOutput) {}
@@ -170,15 +134,16 @@ impl OutputHandler for Popup {
     fn output_destroyed(
         &mut self,
         _: &Connection,
-        _: &QueueHandle<Self>,
+        qh: &QueueHandle<Self>,
         output: wl_output::WlOutput,
     ) {
-        let config = self.config.read().expect("config lock poisoned");
+        let config_handle = std::sync::Arc::clone(&self.config);
+        let config = config_handle.read().expect("config lock poisoned");
         self.surfaces.retain(|_, surfaces| {
             surfaces.retain(|surface| surface.output != output);
             !surfaces.is_empty()
         });
-        surface::restack(&self.surfaces, &config);
+        self.reflow(qh, &config);
     }
 }
 

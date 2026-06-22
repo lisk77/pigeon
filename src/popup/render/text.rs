@@ -21,6 +21,14 @@ impl FontCtx {
             swash_cache: SwashCache::new(),
         }
     }
+
+    /// Drop rasterized glyphs after a complete card render.
+    ///
+    /// `SwashCache` has no eviction policy, so retaining it would make memory
+    /// use grow with every distinct glyph/font/size combination ever shown.
+    pub fn clear_raster_cache(&mut self) {
+        self.swash_cache = SwashCache::new();
+    }
 }
 
 #[allow(dead_code)]
