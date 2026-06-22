@@ -1,5 +1,5 @@
 use crate::{
-    config::SharedConfig,
+    config::{RuleAction, SharedConfig},
     images::decode_notification_image,
     notification::Notification,
     popup::{PopupEvent, PopupSender},
@@ -72,15 +72,6 @@ impl Pigeon {
         hints.remove("image-data");
         hints.remove("image_data");
 
-        let timeout = match expire_timeout {
-            0 => None,
-            -1 => Some(configured_timeout(&self.config, &hints)),
-            milliseconds if milliseconds > 0 => {
-                Some(std::time::Duration::from_millis(milliseconds as u64))
-            }
-            _ => None,
-        };
-
         let mut notification = Notification {
             id: 0,
             replaces_id,
@@ -91,6 +82,27 @@ impl Pigeon {
             img,
             actions,
             hints,
+        };
+
+        let action = {
+            let config = self.config.read().expect("config lock poisoned");
+            config.action_for(&notification)
+        };
+        if action == RuleAction::Block {
+            return if replaces_id != 0 {
+                replaces_id
+            } else {
+                self.next_id.fetch_add(1, Ordering::Relaxed)
+            };
+        }
+
+        let timeout = match expire_timeout {
+            0 => None,
+            -1 => Some(configured_timeout(&self.config, &notification.hints)),
+            milliseconds if milliseconds > 0 => {
+                Some(std::time::Duration::from_millis(milliseconds as u64))
+            }
+            _ => None,
         };
 
         let mut notifications = self.notifications.lock().unwrap();

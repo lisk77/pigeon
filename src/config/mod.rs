@@ -7,12 +7,14 @@ use std::{
     sync::{Arc, RwLock},
 };
 
+use crate::notification::Notification;
+
 pub mod notification;
 mod profiles;
 mod timeouts;
 
 pub use notification::NotificationConfig;
-pub use profiles::{Profile, ProfileConfig};
+pub use profiles::{Profile, ProfileConfig, RuleAction};
 pub use timeouts::TimeoutConfig;
 
 pub type SharedConfig = Arc<RwLock<PigeonConfig>>;
@@ -72,6 +74,24 @@ impl PigeonConfig {
         self.profiles.get(name)
     }
 
+    pub fn selected_profile(&self, notification: &Notification) -> Option<&Profile> {
+        let override_profile = self
+            .profile
+            .allow_profile_override
+            .then(|| notification.profile())
+            .flatten();
+
+        override_profile
+            .and_then(|name| self.profile(name))
+            .or_else(|| self.profile(&self.profile.active))
+    }
+
+    pub fn action_for(&self, notification: &Notification) -> RuleAction {
+        self.selected_profile(notification)
+            .map(|profile| profile.action_for(notification))
+            .unwrap_or(RuleAction::Allow)
+    }
+
     fn validate(&self) -> Result<(), config::ConfigError> {
         let notification = &self.notification;
         if notification.min_width == 0 || notification.min_height == 0 {
@@ -88,6 +108,25 @@ impl PigeonConfig {
             return Err(config::ConfigError::Message(
                 "notification.min_height must not exceed notification.max_height".into(),
             ));
+        }
+
+        if (self.profile.active != "default" || !self.profiles.is_empty())
+            && !self.profiles.contains_key(&self.profile.active)
+        {
+            return Err(config::ConfigError::Message(format!(
+                "active profile {:?} is not defined",
+                self.profile.active
+            )));
+        }
+
+        for (profile_name, profile) in &self.profiles {
+            for (index, rule) in profile.rules.iter().enumerate() {
+                if !rule.has_matcher() {
+                    return Err(config::ConfigError::Message(format!(
+                        "profiles.{profile_name}.rules[{index}] must have at least one matcher"
+                    )));
+                }
+            }
         }
 
         Ok(())

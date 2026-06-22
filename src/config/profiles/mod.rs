@@ -2,20 +2,22 @@ mod rules;
 
 use serde::Deserialize;
 
+use crate::notification::Notification;
+
 pub use rules::{Rule, RuleAction};
 
 #[derive(Debug, Deserialize)]
 #[serde(default)]
 pub struct ProfileConfig {
     pub active: String,
-    pub allow_hint_override: bool,
+    pub allow_profile_override: bool,
 }
 
 impl Default for ProfileConfig {
     fn default() -> Self {
         Self {
             active: "default".into(),
-            allow_hint_override: true,
+            allow_profile_override: false,
         }
     }
 }
@@ -33,5 +35,15 @@ impl Default for Profile {
             default_action: RuleAction::Allow,
             rules: Vec::new(),
         }
+    }
+}
+
+impl Profile {
+    pub fn action_for(&self, notification: &Notification) -> RuleAction {
+        self.rules
+            .iter()
+            .find(|rule| rule.matches(notification))
+            .map(|rule| rule.action)
+            .unwrap_or(self.default_action)
     }
 }
