@@ -1,16 +1,23 @@
 use serde::Deserialize;
 
+use super::text::TextStyleConfig;
+
 #[derive(Clone, Debug, Deserialize)]
 #[serde(default)]
 pub struct SummaryConfig {
-    pub font_size: f32,
+    #[serde(flatten)]
+    pub text: TextStyleConfig,
     pub bottom_gap: f32,
 }
 
 impl Default for SummaryConfig {
     fn default() -> Self {
         Self {
-            font_size: 18.0,
+            text: TextStyleConfig {
+                font_size: 18.0,
+                bold: true,
+                ..TextStyleConfig::default()
+            },
             bottom_gap: 8.0,
         }
     }

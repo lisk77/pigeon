@@ -1,8 +1,10 @@
 use crate::{
-    config::notification::{ProgressAlignment, ProgressConfig, ProgressDirection},
+    config::notification::{
+        NotificationConfig, ProgressAlignment, ProgressConfig, ProgressDirection, TemplateElement,
+    },
     notification::Notification,
     popup::render::{
-        text::{FontCtx, draw_text, measure_text_height},
+        text::{FontCtx, StyledTextRun, draw_styled_text, measure_styled_text_height},
         thumbnail::draw_thumbnail,
     },
 };
@@ -43,8 +45,6 @@ pub fn render_card(
         .saturating_add(notification_config.border.width);
     let thumbnail_size = notification_config.thumbnail.size;
     let thumbnail_gap = notification_config.thumbnail.gap;
-    let summary_font_size = notification_config.summary.font_size;
-    let body_font_size = notification_config.body.font_size;
     let summary_body_gap = notification_config.summary.bottom_gap;
 
     let text_x = if let Some(img) = &notification.img {
@@ -65,47 +65,68 @@ pub fn render_card(
     let text_width = full_width
         .saturating_sub(text_x)
         .saturating_sub(outer_padding);
-    let summary_height = measure_text_height(
-        fonts,
-        &notification.summary,
-        text_width,
-        summary_font_size,
-        true,
-    );
-    let body_y = outer_padding as f32 + summary_height + summary_body_gap;
+    if notification_config.format.is_default_layout() {
+        let summary_runs = [StyledTextRun {
+            text: &notification.summary,
+            style: &notification_config.summary.text,
+        }];
+        let body_runs = [StyledTextRun {
+            text: &notification.body,
+            style: &notification_config.body.text,
+        }];
+        let summary_height = measure_styled_text_height(
+            fonts,
+            &summary_runs,
+            text_width,
+            &notification_config.summary.text,
+        );
+        let body_y = (outer_padding as f32 + summary_height + summary_body_gap).ceil() as u32;
+        let body_height = full_height
+            .saturating_sub(body_y)
+            .saturating_sub(outer_padding);
 
-    let body_y = body_y.ceil() as u32;
-    let body_height = full_height
-        .saturating_sub(body_y)
-        .saturating_sub(outer_padding);
+        draw_styled_text(
+            canvas,
+            width,
+            height,
+            fonts,
+            &summary_runs,
+            text_x,
+            outer_padding,
+            text_width,
+            summary_height.ceil() as u32,
+            &notification_config.summary.text,
+        );
 
-    draw_text(
-        canvas,
-        width,
-        height,
-        fonts,
-        &notification.summary,
-        text_x,
-        outer_padding,
-        text_width,
-        summary_height.ceil() as u32,
-        summary_font_size,
-        true,
-    );
-
-    draw_text(
-        canvas,
-        width,
-        height,
-        fonts,
-        &notification.body,
-        text_x,
-        body_y,
-        text_width,
-        body_height,
-        body_font_size,
-        false,
-    );
+        draw_styled_text(
+            canvas,
+            width,
+            height,
+            fonts,
+            &body_runs,
+            text_x,
+            body_y,
+            text_width,
+            body_height,
+            &notification_config.body.text,
+        );
+    } else {
+        let runs = notification_config.format.runs(notification);
+        let styled_runs = styled_template_runs(&runs, notification_config);
+        let text_height = full_height.saturating_sub(outer_padding.saturating_mul(2));
+        draw_styled_text(
+            canvas,
+            width,
+            height,
+            fonts,
+            &styled_runs,
+            text_x,
+            outer_padding,
+            text_width,
+            text_height,
+            &notification_config.body.text,
+        );
+    }
 }
 
 fn fill_notification_background(
@@ -306,21 +327,38 @@ pub fn measure_card_height(notification: &Notification, width: u32, fonts: &mut 
         content_inset
     };
     let text_width = width.saturating_sub(text_x).saturating_sub(content_inset);
-    let summary_height = measure_text_height(
-        fonts,
-        &notification.summary,
-        text_width,
-        notification_config.summary.font_size,
-        true,
-    );
-    let body_height = measure_text_height(
-        fonts,
-        &notification.body,
-        text_width,
-        notification_config.body.font_size,
-        false,
-    );
-    let text_stack_height = summary_height + notification_config.summary.bottom_gap + body_height;
+    let text_stack_height = if notification_config.format.is_default_layout() {
+        let summary_runs = [StyledTextRun {
+            text: &notification.summary,
+            style: &notification_config.summary.text,
+        }];
+        let body_runs = [StyledTextRun {
+            text: &notification.body,
+            style: &notification_config.body.text,
+        }];
+        let summary_height = measure_styled_text_height(
+            fonts,
+            &summary_runs,
+            text_width,
+            &notification_config.summary.text,
+        );
+        let body_height = measure_styled_text_height(
+            fonts,
+            &body_runs,
+            text_width,
+            &notification_config.body.text,
+        );
+        summary_height + notification_config.summary.bottom_gap + body_height
+    } else {
+        let runs = notification_config.format.runs(notification);
+        let styled_runs = styled_template_runs(&runs, notification_config);
+        measure_styled_text_height(
+            fonts,
+            &styled_runs,
+            text_width,
+            &notification_config.body.text,
+        )
+    };
     let content_height = if notification.img.is_some() {
         (notification_config.thumbnail.size as f32).max(text_stack_height)
     } else {
@@ -331,4 +369,22 @@ pub fn measure_card_height(notification: &Notification, width: u32, fonts: &mut 
         notification_config.min_height,
         notification_config.max_height,
     )
+}
+
+fn styled_template_runs<'a>(
+    runs: &'a [crate::config::notification::TemplateRun],
+    config: &'a NotificationConfig,
+) -> Vec<StyledTextRun<'a>> {
+    runs.iter()
+        .map(|run| StyledTextRun {
+            text: &run.text,
+            style: match run.element {
+                TemplateElement::Literal => &config.literal,
+                TemplateElement::AppName => &config.app_name,
+                TemplateElement::Summary => &config.summary.text,
+                TemplateElement::Body => &config.body.text,
+                TemplateElement::Details => &config.details,
+            },
+        })
+        .collect()
 }

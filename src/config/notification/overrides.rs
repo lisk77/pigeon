@@ -1,8 +1,8 @@
 use serde::{Deserialize, Deserializer};
 
 use super::{
-    NotificationConfig, ProgressAlignment, ProgressDirection, ProgressThickness,
-    deserialize_rgba_color,
+    NotificationConfig, NotificationTemplate, ProgressAlignment, ProgressDirection,
+    ProgressThickness, TextStyleConfig, deserialize_rgba_color,
 };
 
 #[derive(Debug, Default, Deserialize)]
@@ -10,12 +10,16 @@ use super::{
 pub struct NotificationStyleOverride {
     pub outer_padding: Option<u32>,
     pub corner_radius: Option<u32>,
+    pub format: Option<NotificationTemplate>,
     #[serde(default, deserialize_with = "deserialize_optional_rgba_color")]
     pub color: Option<[u8; 4]>,
     pub border: BorderOverride,
     pub thumbnail: ThumbnailOverride,
     pub summary: SummaryOverride,
     pub body: BodyOverride,
+    pub app_name: TextStyleOverride,
+    pub details: TextStyleOverride,
+    pub literal: TextStyleOverride,
     pub progress: ProgressOverride,
 }
 
@@ -29,6 +33,9 @@ impl NotificationStyleOverride {
         if let Some(value) = self.corner_radius {
             resolved.corner_radius = value;
         }
+        if let Some(value) = &self.format {
+            resolved.format = value.clone();
+        }
         if let Some(value) = self.color {
             resolved.color = value;
         }
@@ -36,7 +43,10 @@ impl NotificationStyleOverride {
         self.border.apply_to(&mut resolved);
         self.thumbnail.apply_to(&mut resolved);
         self.summary.apply_to(&mut resolved);
-        self.body.apply_to(&mut resolved);
+        self.body.apply_to(&mut resolved.body.text);
+        self.app_name.apply_to(&mut resolved.app_name);
+        self.details.apply_to(&mut resolved.details);
+        self.literal.apply_to(&mut resolved.literal);
         self.progress.apply_to(&mut resolved);
 
         resolved
@@ -83,15 +93,14 @@ impl ThumbnailOverride {
 #[derive(Debug, Default, Deserialize)]
 #[serde(default)]
 pub struct SummaryOverride {
-    pub font_size: Option<f32>,
+    #[serde(flatten)]
+    pub text: TextStyleOverride,
     pub bottom_gap: Option<f32>,
 }
 
 impl SummaryOverride {
     fn apply_to(&self, config: &mut NotificationConfig) {
-        if let Some(value) = self.font_size {
-            config.summary.font_size = value;
-        }
+        self.text.apply_to(&mut config.summary.text);
         if let Some(value) = self.bottom_gap {
             config.summary.bottom_gap = value;
         }
@@ -100,17 +109,36 @@ impl SummaryOverride {
 
 #[derive(Debug, Default, Deserialize)]
 #[serde(default)]
-pub struct BodyOverride {
+pub struct TextStyleOverride {
     pub font_size: Option<f32>,
+    pub bold: Option<bool>,
+    pub italic: Option<bool>,
+    #[serde(default, deserialize_with = "deserialize_optional_rgba_color")]
+    pub color: Option<[u8; 4]>,
+    pub font_family: Option<String>,
 }
 
-impl BodyOverride {
-    fn apply_to(&self, config: &mut NotificationConfig) {
+impl TextStyleOverride {
+    fn apply_to(&self, style: &mut TextStyleConfig) {
         if let Some(value) = self.font_size {
-            config.body.font_size = value;
+            style.font_size = value;
+        }
+        if let Some(value) = self.bold {
+            style.bold = value;
+        }
+        if let Some(value) = self.italic {
+            style.italic = value;
+        }
+        if let Some(value) = self.color {
+            style.color = value;
+        }
+        if let Some(value) = &self.font_family {
+            style.font_family = Some(value.clone());
         }
     }
 }
+
+pub type BodyOverride = TextStyleOverride;
 
 #[derive(Debug, Default, Deserialize)]
 #[serde(default)]

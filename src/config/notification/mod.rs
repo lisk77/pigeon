@@ -6,11 +6,15 @@ mod overrides;
 mod position;
 mod progress;
 mod summary;
+mod template;
+mod text;
 mod thumbnail;
 
 pub use overrides::NotificationStyleOverride;
 pub use position::{Anchor, PositionConfig};
 pub use progress::{ProgressAlignment, ProgressConfig, ProgressDirection, ProgressThickness};
+pub use template::{NotificationTemplate, TemplateElement, TemplateRun};
+pub use text::TextStyleConfig;
 
 #[derive(Clone, Debug, Deserialize)]
 #[serde(default)]
@@ -21,6 +25,7 @@ pub struct NotificationConfig {
     pub max_height: u32,
     pub outer_padding: u32,
     pub corner_radius: u32,
+    pub format: template::NotificationTemplate,
     #[serde(deserialize_with = "deserialize_rgba_color")]
     pub color: [u8; 4],
     pub position: position::PositionConfig,
@@ -29,6 +34,9 @@ pub struct NotificationConfig {
     pub thumbnail: thumbnail::ThumbnailConfig,
     pub summary: summary::SummaryConfig,
     pub body: body::BodyConfig,
+    pub app_name: text::TextStyleConfig,
+    pub details: text::TextStyleConfig,
+    pub literal: text::TextStyleConfig,
 }
 
 impl Default for NotificationConfig {
@@ -40,6 +48,7 @@ impl Default for NotificationConfig {
             max_height: 480,
             outer_padding: 16,
             corner_radius: 12,
+            format: template::NotificationTemplate::default(),
             color: [0x20, 0x20, 0x20, 0xff],
             position: position::PositionConfig::default(),
             progress: progress::ProgressConfig::default(),
@@ -47,6 +56,17 @@ impl Default for NotificationConfig {
             thumbnail: thumbnail::ThumbnailConfig::default(),
             summary: summary::SummaryConfig::default(),
             body: body::BodyConfig::default(),
+            app_name: TextStyleConfig {
+                font_size: 12.0,
+                bold: true,
+                ..TextStyleConfig::default()
+            },
+            details: TextStyleConfig {
+                font_size: 12.0,
+                color: [0xa0, 0xa0, 0xa0, 0xff],
+                ..TextStyleConfig::default()
+            },
+            literal: TextStyleConfig::default(),
         }
     }
 }

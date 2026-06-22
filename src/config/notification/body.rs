@@ -1,13 +1,18 @@
 use serde::Deserialize;
 
+use super::text::TextStyleConfig;
+
 #[derive(Clone, Debug, Deserialize)]
 #[serde(default)]
 pub struct BodyConfig {
-    pub font_size: f32,
+    #[serde(flatten)]
+    pub text: TextStyleConfig,
 }
 
 impl Default for BodyConfig {
     fn default() -> Self {
-        Self { font_size: 14.0 }
+        Self {
+            text: TextStyleConfig::default(),
+        }
     }
 }
