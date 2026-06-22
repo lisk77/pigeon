@@ -1,8 +1,5 @@
 use crate::{
-    config::{
-        PigeonConfig,
-        notification::{ProgressAlignment, ProgressConfig, ProgressDirection},
-    },
+    config::notification::{ProgressAlignment, ProgressConfig, ProgressDirection},
     notification::Notification,
     popup::render::{
         text::{FontCtx, draw_text, measure_text_height},
@@ -18,9 +15,8 @@ pub fn render_card(
     full_height: u32,
     notification: &Notification,
     fonts: &mut FontCtx,
-    config: &PigeonConfig,
 ) {
-    let notification_config = &config.notification;
+    let notification_config = &notification.style;
     let progress = progress_rect(
         notification,
         full_width,
@@ -299,13 +295,8 @@ fn rounded_rect_contains(x: u32, y: u32, width: u32, height: u32, corner_radius:
     center_x.abs_diff(pixel_x).pow(2) + center_y.abs_diff(pixel_y).pow(2) <= radius.pow(2)
 }
 
-pub fn measure_card_height(
-    notification: &Notification,
-    width: u32,
-    fonts: &mut FontCtx,
-    config: &PigeonConfig,
-) -> u32 {
-    let notification_config = &config.notification;
+pub fn measure_card_height(notification: &Notification, width: u32, fonts: &mut FontCtx) -> u32 {
+    let notification_config = &notification.style;
     let content_inset = notification_config
         .outer_padding
         .saturating_add(notification_config.border.width);

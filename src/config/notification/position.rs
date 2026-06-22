@@ -1,6 +1,6 @@
 use serde::Deserialize;
 
-#[derive(Debug, Deserialize)]
+#[derive(Clone, Debug, Deserialize)]
 #[serde(default)]
 pub struct PositionConfig {
     pub anchor: Anchor,
@@ -11,7 +11,7 @@ pub struct PositionConfig {
     pub notification_gap: u32,
 }
 
-#[derive(Debug, Default, Deserialize)]
+#[derive(Clone, Copy, Debug, Default, Deserialize)]
 #[serde(rename_all = "kebab-case")]
 pub enum Anchor {
     Top,

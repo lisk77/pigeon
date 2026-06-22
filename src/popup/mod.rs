@@ -116,8 +116,7 @@ impl Popup {
         let config = config_handle.read().expect("config lock poisoned");
         let id = notification.id;
         let width = config.notification.max_width;
-        let height =
-            render::card::measure_card_height(&notification, width, &mut self.fonts, &config);
+        let height = render::card::measure_card_height(&notification, width, &mut self.fonts);
 
         if self
             .surfaces
@@ -134,7 +133,7 @@ impl Popup {
             self.reflow(&config);
             for surface in self.surfaces.get_mut(&id).unwrap() {
                 if surface.configured {
-                    surface.draw(&mut self.pool, &mut self.fonts, &config);
+                    surface.draw(&mut self.pool, &mut self.fonts);
                 }
             }
             return;
@@ -283,7 +282,7 @@ impl Popup {
                     surface.height = height;
                     surface.layer.set_size(width, height);
                     if surface.configured {
-                        surface.draw(&mut self.pool, &mut self.fonts, config);
+                        surface.draw(&mut self.pool, &mut self.fonts);
                     } else {
                         surface.layer.commit();
                     }
@@ -346,7 +345,6 @@ impl Popup {
                     &surface.notification,
                     width,
                     &mut self.fonts,
-                    &config,
                 );
             }
         }

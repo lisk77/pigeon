@@ -105,7 +105,7 @@ impl LayerShellHandler for Popup {
                     surface.height = configure.new_size.1;
                 }
                 surface.configured = true;
-                surface.draw(&mut self.pool, &mut self.fonts, &config);
+                surface.draw(&mut self.pool, &mut self.fonts);
             }
             surface::restack(&self.surfaces, &config);
         }

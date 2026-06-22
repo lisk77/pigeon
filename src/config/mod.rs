@@ -86,10 +86,17 @@ impl PigeonConfig {
             .or_else(|| self.profile(&self.profile.active))
     }
 
-    pub fn action_for(&self, notification: &Notification) -> RuleAction {
-        self.selected_profile(notification)
-            .map(|profile| profile.action_for(notification))
-            .unwrap_or(RuleAction::Allow)
+    pub fn presentation_for(
+        &self,
+        notification: &Notification,
+    ) -> (RuleAction, NotificationConfig) {
+        match self.selected_profile(notification) {
+            Some(profile) => (
+                profile.action_for(notification),
+                profile.notification.apply_to(&self.notification),
+            ),
+            None => (RuleAction::Allow, self.notification.clone()),
+        }
     }
 
     fn validate(&self) -> Result<(), config::ConfigError> {

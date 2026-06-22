@@ -2,7 +2,7 @@ mod rules;
 
 use serde::Deserialize;
 
-use crate::notification::Notification;
+use crate::{config::notification::NotificationStyleOverride, notification::Notification};
 
 pub use rules::{Rule, RuleAction};
 
@@ -27,6 +27,7 @@ impl Default for ProfileConfig {
 pub struct Profile {
     pub default_action: RuleAction,
     pub rules: Vec<Rule>,
+    pub notification: NotificationStyleOverride,
 }
 
 impl Default for Profile {
@@ -34,6 +35,7 @@ impl Default for Profile {
         Self {
             default_action: RuleAction::Allow,
             rules: Vec::new(),
+            notification: NotificationStyleOverride::default(),
         }
     }
 }

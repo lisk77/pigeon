@@ -2,7 +2,7 @@ use serde::{Deserialize, Deserializer};
 
 use super::deserialize_rgba_color;
 
-#[derive(Debug, Deserialize)]
+#[derive(Clone, Debug, Deserialize)]
 #[serde(default)]
 pub struct ProgressConfig {
     pub direction: ProgressDirection,
@@ -25,7 +25,7 @@ impl Default for ProgressConfig {
     }
 }
 
-#[derive(Debug, Default, Deserialize)]
+#[derive(Clone, Copy, Debug, Default, Deserialize)]
 #[serde(rename_all = "kebab-case")]
 pub enum ProgressDirection {
     #[default]
@@ -41,7 +41,7 @@ impl ProgressDirection {
     }
 }
 
-#[derive(Debug, Default, Deserialize)]
+#[derive(Clone, Copy, Debug, Default, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum ProgressAlignment {
     Start,
@@ -50,7 +50,7 @@ pub enum ProgressAlignment {
     End,
 }
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub enum ProgressThickness {
     Pixels(u32),
     Percent(f32),

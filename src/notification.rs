@@ -1,4 +1,4 @@
-use crate::images::Image;
+use crate::{config::NotificationConfig, images::Image};
 use std::collections::HashMap;
 use zbus::zvariant::OwnedValue;
 
@@ -13,6 +13,7 @@ pub struct Notification {
     pub img: Option<Image>,
     pub actions: HashMap<String, String>,
     pub hints: HashMap<String, OwnedValue>,
+    pub style: NotificationConfig,
 }
 
 impl Notification {

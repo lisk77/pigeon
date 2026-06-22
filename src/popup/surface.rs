@@ -79,7 +79,7 @@ impl NotificationSurface {
         self.layer.set_anchor(anchor_for(&position.anchor));
     }
 
-    pub(super) fn draw(&mut self, pool: &mut SlotPool, fonts: &mut FontCtx, config: &PigeonConfig) {
+    pub(super) fn draw(&mut self, pool: &mut SlotPool, fonts: &mut FontCtx) {
         if !self.configured {
             return;
         }
@@ -102,7 +102,6 @@ impl NotificationSurface {
             self.full_height,
             &self.notification,
             fonts,
-            config,
         );
 
         self.layer

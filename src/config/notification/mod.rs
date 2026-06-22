@@ -2,15 +2,17 @@ use serde::{Deserialize, Deserializer};
 
 mod body;
 mod border;
+mod overrides;
 mod position;
 mod progress;
 mod summary;
 mod thumbnail;
 
+pub use overrides::NotificationStyleOverride;
 pub use position::{Anchor, PositionConfig};
-pub use progress::{ProgressAlignment, ProgressConfig, ProgressDirection};
+pub use progress::{ProgressAlignment, ProgressConfig, ProgressDirection, ProgressThickness};
 
-#[derive(Debug, Deserialize)]
+#[derive(Clone, Debug, Deserialize)]
 #[serde(default)]
 pub struct NotificationConfig {
     pub min_width: u32,

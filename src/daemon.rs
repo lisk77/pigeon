@@ -72,11 +72,12 @@ impl Pigeon {
             img: None,
             actions: HashMap::new(),
             hints,
+            style: crate::config::NotificationConfig::default(),
         };
 
-        let action = {
+        let (action, style) = {
             let config = self.config.read().expect("config lock poisoned");
-            config.action_for(&notification)
+            config.presentation_for(&notification)
         };
         if action == RuleAction::Block {
             return if replaces_id != 0 {
@@ -85,6 +86,7 @@ impl Pigeon {
                 self.next_id.fetch_add(1, Ordering::Relaxed)
             };
         }
+        notification.style = style;
 
         notification.img = decode_notification_image(&notification.hints, &notification.app_icon);
         notification.hints.remove("image-data");
