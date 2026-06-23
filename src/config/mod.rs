@@ -19,7 +19,7 @@ pub use timeouts::TimeoutConfig;
 
 pub type SharedConfig = Arc<RwLock<PigeonConfig>>;
 
-#[derive(Debug, Default, Deserialize)]
+#[derive(Debug, Deserialize)]
 #[serde(default)]
 pub struct PigeonConfig {
     pub timeouts: TimeoutConfig,
@@ -28,13 +28,28 @@ pub struct PigeonConfig {
     pub profiles: HashMap<String, Profile>,
 }
 
+impl Default for PigeonConfig {
+    fn default() -> Self {
+        let mut profiles = HashMap::new();
+        profiles.insert("default".into(), Profile::default());
+
+        Self {
+            timeouts: TimeoutConfig::default(),
+            notification: NotificationConfig::default(),
+            profile: ProfileConfig::default(),
+            profiles,
+        }
+    }
+}
+
 impl PigeonConfig {
     pub fn load(path: impl AsRef<Path>) -> Result<Self, config::ConfigError> {
-        let config: Self = Config::builder()
+        let mut config: Self = Config::builder()
             .add_source(File::from(path.as_ref()).required(false))
             .build()?
             .try_deserialize()?;
 
+        config.profiles.entry("default".into()).or_default();
         config.validate()?;
         Ok(config)
     }
@@ -107,7 +122,6 @@ impl PigeonConfig {
                     None => Some((profile.default_action, profile_style)),
                 }
             }
-            None if name == "default" => Some((RuleAction::Allow, self.notification.clone())),
             None => None,
         }
     }
@@ -130,7 +144,7 @@ impl PigeonConfig {
             ));
         }
 
-        if self.profile.active != "default" && !self.profiles.contains_key(&self.profile.active) {
+        if !self.profiles.contains_key(&self.profile.active) {
             return Err(config::ConfigError::Message(format!(
                 "active profile {:?} is not defined",
                 self.profile.active
