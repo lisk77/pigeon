@@ -1,10 +1,13 @@
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 
-#[derive(Clone, Debug, Deserialize)]
+#[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(default)]
 pub struct BorderConfig {
     pub width: u32,
-    #[serde(deserialize_with = "super::deserialize_rgba_color")]
+    #[serde(
+        deserialize_with = "super::deserialize_rgba_color",
+        serialize_with = "super::serialize_rgba_color"
+    )]
     pub color: [u8; 4],
 }
 

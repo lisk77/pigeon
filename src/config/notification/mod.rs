@@ -1,4 +1,4 @@
-use serde::{Deserialize, Deserializer};
+use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
 mod body;
 mod border;
@@ -16,7 +16,7 @@ pub use progress::{ProgressAlignment, ProgressConfig, ProgressDirection, Progres
 pub use template::{NotificationTemplate, TemplateElement, TemplateRun};
 pub use text::TextStyleConfig;
 
-#[derive(Clone, Debug, Deserialize)]
+#[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(default)]
 pub struct NotificationConfig {
     pub min_width: u32,
@@ -26,7 +26,10 @@ pub struct NotificationConfig {
     pub outer_padding: u32,
     pub corner_radius: u32,
     pub format: template::NotificationTemplate,
-    #[serde(deserialize_with = "deserialize_rgba_color")]
+    #[serde(
+        deserialize_with = "deserialize_rgba_color",
+        serialize_with = "serialize_rgba_color"
+    )]
     pub color: [u8; 4],
     pub emoji_font: String,
     pub position: position::PositionConfig,
@@ -79,6 +82,19 @@ where
 {
     let value = String::deserialize(deserializer)?;
     parse_rgba_color(&value).map_err(serde::de::Error::custom)
+}
+
+pub(super) fn serialize_rgba_color<S>(color: &[u8; 4], serializer: S) -> Result<S::Ok, S::Error>
+where
+    S: Serializer,
+{
+    let [blue, green, red, alpha] = *color;
+    let value = if alpha == 0xff {
+        format!("#{red:02x}{green:02x}{blue:02x}")
+    } else {
+        format!("#{red:02x}{green:02x}{blue:02x}{alpha:02x}")
+    };
+    serializer.serialize_str(&value)
 }
 
 pub(super) fn parse_rgba_color(value: &str) -> Result<[u8; 4], String> {

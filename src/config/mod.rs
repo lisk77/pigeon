@@ -1,5 +1,5 @@
 use config::{Config, File};
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use std::{
     collections::HashMap,
     env,
@@ -19,7 +19,7 @@ pub use timeouts::TimeoutConfig;
 
 pub type SharedConfig = Arc<RwLock<PigeonConfig>>;
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Serialize)]
 #[serde(default)]
 pub struct PigeonConfig {
     #[serde(skip)]
@@ -27,7 +27,12 @@ pub struct PigeonConfig {
     pub timeouts: TimeoutConfig,
     pub notification: NotificationConfig,
     pub profile: ProfileConfig,
+    #[serde(skip_serializing_if = "profiles_are_implicit")]
     pub profiles: HashMap<String, Profile>,
+}
+
+fn profiles_are_implicit(profiles: &HashMap<String, Profile>) -> bool {
+    profiles.len() == 1 && profiles.get("default").is_some_and(Profile::is_default)
 }
 
 impl Default for PigeonConfig {
@@ -61,6 +66,10 @@ impl PigeonConfig {
 
     pub fn load_default() -> Result<Self, config::ConfigError> {
         Self::load(Self::default_path())
+    }
+
+    pub fn default_toml() -> Result<String, toml::ser::Error> {
+        toml::to_string_pretty(&Self::default())
     }
 
     pub fn load_or_default(path: impl AsRef<Path>) -> Self {

@@ -1,12 +1,12 @@
 mod rules;
 
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 
 use crate::{config::notification::NotificationStyleOverride, notification::Notification};
 
 pub use rules::{Rule, RuleAction};
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Serialize)]
 #[serde(default)]
 pub struct ProfileConfig {
     pub active: String,
@@ -22,7 +22,7 @@ impl Default for ProfileConfig {
     }
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Serialize)]
 #[serde(default)]
 pub struct Profile {
     pub default_action: RuleAction,
@@ -41,6 +41,12 @@ impl Default for Profile {
 }
 
 impl Profile {
+    pub(crate) fn is_default(&self) -> bool {
+        self.default_action == RuleAction::Allow
+            && self.rules.is_empty()
+            && self.notification.is_empty()
+    }
+
     pub fn matching_rule(&self, notification: &Notification) -> Option<&Rule> {
         self.rules.iter().find(|rule| rule.matches(notification))
     }

@@ -1,8 +1,8 @@
-use serde::{Deserialize, Deserializer};
+use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
-use super::deserialize_rgba_color;
+use super::{deserialize_rgba_color, serialize_rgba_color};
 
-#[derive(Clone, Debug, Deserialize)]
+#[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(default)]
 pub struct ProgressConfig {
     pub direction: ProgressDirection,
@@ -10,7 +10,10 @@ pub struct ProgressConfig {
     pub alignment: ProgressAlignment,
     pub inset: u32,
     pub corner_radius: u32,
-    #[serde(deserialize_with = "deserialize_rgba_color")]
+    #[serde(
+        deserialize_with = "deserialize_rgba_color",
+        serialize_with = "serialize_rgba_color"
+    )]
     pub color: [u8; 4],
 }
 
@@ -27,7 +30,7 @@ impl Default for ProgressConfig {
     }
 }
 
-#[derive(Clone, Copy, Debug, Default, Deserialize)]
+#[derive(Clone, Copy, Debug, Default, Deserialize, Serialize)]
 #[serde(rename_all = "kebab-case")]
 pub enum ProgressDirection {
     #[default]
@@ -43,7 +46,7 @@ impl ProgressDirection {
     }
 }
 
-#[derive(Clone, Copy, Debug, Default, Deserialize)]
+#[derive(Clone, Copy, Debug, Default, Deserialize, Serialize)]
 #[serde(rename_all = "lowercase")]
 pub enum ProgressAlignment {
     Start,
@@ -97,5 +100,17 @@ impl<'de> Deserialize<'de> for ProgressThickness {
         Err(serde::de::Error::custom(
             "thickness must use px or % units, such as 5px or 100%",
         ))
+    }
+}
+
+impl Serialize for ProgressThickness {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        match self {
+            Self::Pixels(value) => serializer.serialize_str(&format!("{value}px")),
+            Self::Percent(value) => serializer.serialize_str(&format!("{value}%")),
+        }
     }
 }

@@ -1,14 +1,17 @@
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 
 use super::deserialize_rgba_color;
 
-#[derive(Clone, Debug, Deserialize)]
+#[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(default)]
 pub struct TextStyleConfig {
     pub font_size: f32,
     pub bold: bool,
     pub italic: bool,
-    #[serde(deserialize_with = "deserialize_rgba_color")]
+    #[serde(
+        deserialize_with = "deserialize_rgba_color",
+        serialize_with = "super::serialize_rgba_color"
+    )]
     pub color: [u8; 4],
     pub font_family: Option<String>,
 }

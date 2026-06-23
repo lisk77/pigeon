@@ -1,4 +1,4 @@
-use serde::{Deserialize, Deserializer};
+use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
 use crate::{
     lexer::{LexError, Lexer, Token},
@@ -86,10 +86,29 @@ impl<'de> Deserialize<'de> for NotificationTemplate {
     }
 }
 
+impl Serialize for NotificationTemplate {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        let source: String = self.tokens.iter().map(TemplateToken::source).collect();
+        serializer.serialize_str(&source)
+    }
+}
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 enum TemplateToken {
     Literal(String),
     Field(TemplateField),
+}
+
+impl TemplateToken {
+    fn source(&self) -> String {
+        match self {
+            Self::Literal(text) => text.clone(),
+            Self::Field(field) => format!("%{}", field.identifier()),
+        }
+    }
 }
 
 impl TryFrom<Token> for TemplateToken {
@@ -129,6 +148,19 @@ enum TemplateField {
 }
 
 impl TemplateField {
+    fn identifier(self) -> char {
+        match self {
+            Self::AppName => 'a',
+            Self::Summary => 's',
+            Self::Body => 'b',
+            Self::Category => 'c',
+            Self::DesktopEntry => 'd',
+            Self::Urgency => 'u',
+            Self::Progress => 'p',
+            Self::StackTag => 'S',
+        }
+    }
+
     fn resolve(self, notification: &Notification) -> String {
         match self {
             Self::AppName => notification.app_name.clone(),
