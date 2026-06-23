@@ -4,12 +4,7 @@ use crate::{
     popup::{self, Popup, PopupEvent},
 };
 use notify::{Event, EventKind, RecommendedWatcher, RecursiveMode, Watcher};
-use std::{
-    collections::HashMap,
-    path::Path,
-    sync::{Arc, Mutex},
-    time::Duration,
-};
+use std::{path::Path, sync::Arc, time::Duration};
 use zbus::connection::Builder;
 
 pub fn serve() -> Result<(), Box<dyn std::error::Error>> {
@@ -39,18 +34,19 @@ pub fn serve() -> Result<(), Box<dyn std::error::Error>> {
     })?;
 
     let dismiss_connection = connection.clone();
+    let dismiss_notifications = Arc::clone(&notifications);
 
     runtime.spawn(async move {
         dismiss_reaction(
             dismiss_connection,
             dismiss_events,
-            notifications,
+            dismiss_notifications,
             dismiss_receiver,
         )
         .await;
     });
 
-    Popup::run(event_source, dismiss_sender, config)?;
+    Popup::run(event_source, dismiss_sender, config, notifications)?;
     Ok(())
 }
 
@@ -109,7 +105,7 @@ fn is_config_change(event: &Event, config_path: &Path) -> bool {
 async fn dismiss_reaction(
     dismiss_connection: zbus::Connection,
     dismiss_events: popup::PopupSender,
-    notifications: Arc<Mutex<HashMap<u32, Arc<crate::notification::Notification>>>>,
+    notifications: crate::daemon::SharedNotifications,
     mut dismiss_receiver: tokio::sync::mpsc::UnboundedReceiver<u32>,
 ) {
     while let Some(id) = dismiss_receiver.recv().await {
@@ -118,6 +114,7 @@ async fn dismiss_reaction(
         };
 
         let action_key = notification
+            .notification
             .actions
             .get_key_value("default")
             .map(|(key, _)| key.clone());

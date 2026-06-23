@@ -1,9 +1,7 @@
-use crate::notification::Notification;
 use smithay_client_toolkit::reexports::calloop::channel::{self, Channel, Sender};
-use std::sync::Arc;
 
 pub enum PopupEvent {
-    Show(Arc<Notification>),
+    Show(u32),
     Close(u32),
     ReloadConfig,
 }

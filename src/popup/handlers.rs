@@ -71,10 +71,12 @@ impl LayerShellHandler for Popup {
                 .position(|surface| &surface.layer == layer)
                 .map(|output_index| (*id, output_index))
         }) {
-            self.surfaces.get_mut(&id).unwrap().remove(output_index);
-            if self.surfaces[&id].is_empty() {
+            let removed = self.surfaces.get_mut(&id).unwrap().remove(output_index);
+            let empty = self.surfaces[&id].is_empty();
+            if empty {
                 self.surfaces.remove(&id);
             }
+            self.retire_surface(removed);
             let config_handle = std::sync::Arc::clone(&self.config);
             let config = config_handle.read().expect("config lock poisoned");
             self.reflow(qh, &config);
@@ -84,7 +86,7 @@ impl LayerShellHandler for Popup {
     fn configure(
         &mut self,
         _: &Connection,
-        _: &QueueHandle<Self>,
+        qh: &QueueHandle<Self>,
         layer: &LayerSurface,
         configure: LayerSurfaceConfigure,
         _: u32,
@@ -96,7 +98,18 @@ impl LayerShellHandler for Popup {
                 .map(|output_index| (*id, output_index))
         }) {
             let config = self.config.read().expect("config lock poisoned");
-            {
+            let notification_store = std::sync::Arc::clone(&self.notification_store);
+            let notifications = notification_store
+                .lock()
+                .expect("notification store lock poisoned");
+            let Some(notification) = notifications.get(&id) else {
+                drop(notifications);
+                drop(config);
+                self.close(qh, id);
+                return;
+            };
+            let generation = notification.generation;
+            let retired_frame = {
                 let surface = &mut self.surfaces.get_mut(&id).unwrap()[output_index];
                 if configure.new_size.0 != 0 {
                     surface.width = configure.new_size.0;
@@ -105,7 +118,14 @@ impl LayerShellHandler for Popup {
                     surface.height = configure.new_size.1;
                 }
                 surface.configured = true;
-                surface.draw(&mut self.pool, &mut self.fonts);
+                if surface.generation == generation {
+                    surface.draw(&self.shm, &mut self.fonts, &notification.notification)
+                } else {
+                    None
+                }
+            };
+            if let Some(frame) = retired_frame {
+                self.retired_frames.push(frame);
             }
             surface::restack(&self.surfaces, &config);
         }
@@ -139,10 +159,7 @@ impl OutputHandler for Popup {
     ) {
         let config_handle = std::sync::Arc::clone(&self.config);
         let config = config_handle.read().expect("config lock poisoned");
-        self.surfaces.retain(|_, surfaces| {
-            surfaces.retain(|surface| surface.output != output);
-            !surfaces.is_empty()
-        });
+        self.remove_output(&output);
         self.reflow(qh, &config);
     }
 }

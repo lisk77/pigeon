@@ -13,9 +13,16 @@ use std::{
 };
 use zbus::{object_server::SignalEmitter, zvariant::OwnedValue};
 
+pub struct StoredNotification {
+    pub generation: u64,
+    pub notification: Notification,
+}
+
+pub type SharedNotifications = Arc<Mutex<HashMap<u32, StoredNotification>>>;
+
 pub struct Pigeon {
     next_id: AtomicU32,
-    notifications: Arc<Mutex<HashMap<u32, Arc<Notification>>>>,
+    notifications: SharedNotifications,
     event_proxy: PopupSender,
     config: SharedConfig,
 }
@@ -30,7 +37,7 @@ impl Pigeon {
         }
     }
 
-    pub fn notifications(&self) -> Arc<Mutex<HashMap<u32, Arc<Notification>>>> {
+    pub fn notifications(&self) -> SharedNotifications {
         Arc::clone(&self.notifications)
     }
 }
@@ -110,6 +117,12 @@ impl Pigeon {
             _ => None,
         };
 
+        println!("\nNotification from {}", notification.app_name);
+        println!("{}", notification.summary);
+        println!("{}", notification.body);
+        println!("{}", notification.app_icon);
+        println!("actions: {:?}", notification.actions);
+
         let mut notifications = self.notifications.lock().unwrap();
         let id = if replaces_id != 0 {
             replaces_id
@@ -117,30 +130,32 @@ impl Pigeon {
             notifications
                 .values()
                 .find(|current| {
-                    current.stack_tag() == Some(tag) && same_source(current, &notification)
+                    current.notification.stack_tag() == Some(tag)
+                        && same_source(&current.notification, &notification)
                 })
-                .map(|current| current.id)
+                .map(|current| current.notification.id)
                 .unwrap_or_else(|| self.next_id.fetch_add(1, Ordering::Relaxed))
         } else {
             self.next_id.fetch_add(1, Ordering::Relaxed)
         };
 
+        let generation = notifications
+            .get(&id)
+            .map_or(1, |current| current.generation.wrapping_add(1));
         notification.id = id;
-        let notification = Arc::new(notification);
-        notifications.insert(id, Arc::clone(&notification));
+        notifications.insert(
+            id,
+            StoredNotification {
+                generation,
+                notification,
+            },
+        );
         drop(notifications);
-
-        println!("\nNotification from {}", notification.app_name);
-        println!("{}", notification.summary);
-        println!("{}", notification.body);
-        println!("{}", notification.app_icon);
-        println!("actions: {:?}", notification.actions);
 
         if let Some(timeout) = timeout {
             let notifications = Arc::clone(&self.notifications);
             let event_proxy = self.event_proxy.clone();
             let emitter = emitter.to_owned();
-            let timer_notification = Arc::clone(&notification);
 
             tokio::spawn(async move {
                 tokio::time::sleep(timeout).await;
@@ -149,7 +164,7 @@ impl Pigeon {
                     let mut notifications = notifications.lock().unwrap();
 
                     match notifications.get(&id) {
-                        Some(current) if Arc::ptr_eq(current, &timer_notification) => {
+                        Some(current) if current.generation == generation => {
                             notifications.remove(&id);
                             true
                         }
@@ -164,7 +179,7 @@ impl Pigeon {
             });
         }
 
-        let _ = self.event_proxy.send(PopupEvent::Show(notification));
+        let _ = self.event_proxy.send(PopupEvent::Show(id));
 
         id
     }

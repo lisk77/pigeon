@@ -28,10 +28,6 @@ impl FontCtx {
         }
     }
 
-    /// Drop rasterized glyphs after a complete card render.
-    ///
-    /// `SwashCache` has no eviction policy, so retaining it would make memory
-    /// use grow with every distinct glyph/font/size combination ever shown.
     pub fn clear_raster_cache(&mut self) {
         self.swash_cache = SwashCache::new();
     }
@@ -121,10 +117,6 @@ pub fn measure_styled_text_height(
 }
 
 fn attrs_for<'a>(style: &'a TextStyleConfig, family_override: Option<&'a str>) -> Attrs<'a> {
-    // Color-emoji fonts commonly only provide a regular face.  In particular,
-    // asking for a bold summary glyph can make font matching fall back to the
-    // surrounding monochrome text font, even though the family was explicitly
-    // set to Noto Color Emoji.
     let uses_override = family_override.is_some();
     let mut attrs = Attrs::new()
         .color(Color::rgba(

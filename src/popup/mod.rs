@@ -5,7 +5,7 @@ mod surface;
 
 pub use events::{PopupEvent, PopupReceiver, PopupSender, channel};
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Arc;
 
 use render::text::FontCtx;
@@ -21,14 +21,14 @@ use smithay_client_toolkit::{
     registry::RegistryState,
     seat::SeatState,
     shell::{WaylandSurface, wlr_layer::LayerShell},
-    shm::{Shm, slot::SlotPool},
+    shm::Shm,
 };
-use surface::NotificationSurface;
+use surface::{Frame, NotificationSurface};
 use tokio::sync::mpsc::UnboundedSender;
 
 use crate::{
     config::{PigeonConfig, SharedConfig, notification::Anchor},
-    notification::Notification,
+    daemon::SharedNotifications,
 };
 
 pub struct Popup {
@@ -37,9 +37,10 @@ pub struct Popup {
     pub(in crate::popup) compositor: CompositorState,
     pub(in crate::popup) layer_shell: LayerShell,
     pub(in crate::popup) shm: Shm,
-    pub(in crate::popup) pool: SlotPool,
-    pub(in crate::popup) notifications: BTreeMap<u32, Arc<Notification>>,
+    pub(in crate::popup) notification_ids: BTreeSet<u32>,
+    pub(in crate::popup) notification_store: SharedNotifications,
     pub(in crate::popup) surfaces: BTreeMap<u32, Vec<NotificationSurface>>,
+    pub(in crate::popup) retired_frames: Vec<Frame>,
     pub(in crate::popup) fonts: FontCtx,
     pub(in crate::popup) seat_state: SeatState,
     pub(in crate::popup) pointer: Option<wl_pointer::WlPointer>,
@@ -52,6 +53,7 @@ impl Popup {
         events: PopupReceiver,
         dismiss_sender: UnboundedSender<u32>,
         config: SharedConfig,
+        notification_store: SharedNotifications,
     ) -> Result<(), Box<dyn std::error::Error>> {
         let connection = Connection::connect_to_env()?;
         let (globals, event_queue) = registry_queue_init(&connection)?;
@@ -65,23 +67,16 @@ impl Popup {
         let layer_shell = LayerShell::bind(&globals, &qh)?;
         let shm = Shm::bind(&globals, &qh)?;
 
-        let max_buffer_bytes = {
-            let config = config.read().expect("config lock poisoned");
-            (config.notification.max_width as usize)
-                .checked_mul(config.notification.max_height as usize)
-                .and_then(|pixels| pixels.checked_mul(4))
-                .ok_or_else(|| std::io::Error::other("maximum card dimensions are too large"))?
-        };
-        let pool = SlotPool::new(max_buffer_bytes, &shm)?;
         let mut popup = Self {
             registry_state: RegistryState::new(&globals),
             output_state: OutputState::new(&globals, &qh),
             compositor,
             layer_shell,
             shm,
-            pool,
-            notifications: BTreeMap::new(),
+            notification_ids: BTreeSet::new(),
+            notification_store,
             surfaces: BTreeMap::new(),
+            retired_frames: Vec::new(),
             fonts: FontCtx::new(),
             seat_state: SeatState::new(&globals, &qh),
             pointer: None,
@@ -98,45 +93,67 @@ impl Popup {
 
         loop {
             event_loop.dispatch(None, &mut popup)?;
+            popup.collect_released_frames();
         }
     }
 
     fn handle_command(&mut self, qh: &QueueHandle<Self>, command: PopupEvent) {
         match command {
-            PopupEvent::Show(notification) => self.show(qh, notification),
+            PopupEvent::Show(id) => self.show(qh, id),
             PopupEvent::Close(id) => self.close(qh, id),
             PopupEvent::ReloadConfig => self.reload_config(qh),
         }
     }
 
-    fn show(&mut self, qh: &QueueHandle<Self>, notification: Arc<Notification>) {
+    fn show(&mut self, qh: &QueueHandle<Self>, id: u32) {
+        if !self
+            .notification_store
+            .lock()
+            .expect("notification store lock poisoned")
+            .contains_key(&id)
+        {
+            return;
+        }
         let config_handle = Arc::clone(&self.config);
         let config = config_handle.read().expect("config lock poisoned");
-        self.notifications.insert(notification.id, notification);
+        self.notification_ids.insert(id);
         self.reflow(qh, &config);
     }
 
     fn reflow(&mut self, qh: &QueueHandle<Self>, config: &PigeonConfig) {
         let width = config.notification.max_width;
-        let notifications: Vec<_> = self
-            .notifications
+        let notification_store = Arc::clone(&self.notification_store);
+        let notifications = notification_store
+            .lock()
+            .expect("notification store lock poisoned");
+        self.notification_ids
+            .retain(|id| notifications.contains_key(id));
+        let measurements: Vec<_> = self
+            .notification_ids
             .iter()
-            .map(|(&id, notification)| {
-                (
-                    id,
-                    Arc::clone(notification),
-                    render::card::measure_card_height(notification, width, &mut self.fonts),
-                )
+            .filter_map(|&id| {
+                notifications.get(&id).map(|stored| {
+                    (
+                        id,
+                        stored.generation,
+                        render::card::measure_card_height(
+                            &stored.notification,
+                            width,
+                            &mut self.fonts,
+                        ),
+                    )
+                })
             })
             .collect();
+        drop(notifications);
         let outputs: Vec<wl_output::WlOutput> = self.output_state.outputs().collect();
         let position = &config.notification.position;
         let Some(layout_source) = self.layout_source(&outputs, position.anchor) else {
-            self.surfaces.clear();
+            self.clear_surfaces();
             return;
         };
         let Some((output_width, output_height)) = self.output_size(&layout_source) else {
-            self.surfaces.clear();
+            self.clear_surfaces();
             return;
         };
 
@@ -151,11 +168,9 @@ impl Popup {
             Anchor::Right => (output_width, position.right_margin, position.left_margin),
         };
 
-        // This is the one central visible buffer. Every output receives this
-        // exact layout rather than calculating its own independent stack.
         let mut layout = Vec::new();
         let mut used = leading_margin;
-        for (id, notification, height) in &notifications {
+        for (id, generation, height) in &measurements {
             let full_size = match position.anchor {
                 Anchor::Left | Anchor::Right => width,
                 _ => *height,
@@ -173,7 +188,7 @@ impl Popup {
             };
             layout.push((
                 *id,
-                Arc::clone(notification),
+                *generation,
                 visible_width,
                 visible_height,
                 width,
@@ -188,25 +203,31 @@ impl Popup {
                 .saturating_add(position.notification_gap);
         }
 
-        self.surfaces.retain(|id, surfaces| {
-            surfaces.retain(|surface| {
-                outputs.iter().any(|output| output == &surface.output)
-                    && layout
-                        .iter()
-                        .any(|(layout_id, _, _, _, _, _)| layout_id == id)
-            });
-            !surfaces.is_empty()
+        let layout_ids: BTreeSet<u32> = layout.iter().map(|(id, _, _, _, _, _)| *id).collect();
+        self.retain_surfaces(|id, surface| {
+            layout_ids.contains(&id) && outputs.iter().any(|output| output == &surface.output)
         });
 
+        let mut retired_frames = Vec::new();
+        let notification_store = Arc::clone(&self.notification_store);
+        let notifications = notification_store
+            .lock()
+            .expect("notification store lock poisoned");
         for output in outputs {
-            for (id, notification, visible_width, visible_height, full_width, full_height) in
-                &layout
+            for (id, generation, visible_width, visible_height, full_width, full_height) in &layout
             {
+                let Some(notification) = notifications
+                    .get(id)
+                    .filter(|notification| notification.generation == *generation)
+                    .map(|notification| &notification.notification)
+                else {
+                    continue;
+                };
                 let surfaces = self.surfaces.entry(*id).or_default();
                 if let Some(surface) = surfaces.iter_mut().find(|surface| surface.output == output)
                 {
-                    let notification_changed = !Arc::ptr_eq(&surface.notification, notification);
-                    surface.notification = Arc::clone(notification);
+                    let notification_changed = surface.generation != *generation;
+                    surface.generation = *generation;
                     surface.full_width = *full_width;
                     surface.full_height = *full_height;
                     if surface.width != *visible_width || surface.height != *visible_height {
@@ -214,19 +235,26 @@ impl Popup {
                         surface.height = *visible_height;
                         surface.layer.set_size(*visible_width, *visible_height);
                         if surface.configured {
-                            surface.draw(&mut self.pool, &mut self.fonts);
+                            if let Some(frame) =
+                                surface.draw(&self.shm, &mut self.fonts, notification)
+                            {
+                                retired_frames.push(frame);
+                            }
                         } else {
                             surface.layer.commit();
                         }
-                    } else if notification_changed && surface.configured {
-                        surface.draw(&mut self.pool, &mut self.fonts);
+                    } else if notification_changed
+                        && surface.configured
+                        && let Some(frame) = surface.draw(&self.shm, &mut self.fonts, notification)
+                    {
+                        retired_frames.push(frame);
                     }
                 } else {
                     surfaces.push(NotificationSurface::new(
                         qh,
                         &self.compositor,
                         &self.layer_shell,
-                        Arc::clone(notification),
+                        *generation,
                         output.clone(),
                         *visible_width,
                         *visible_height,
@@ -237,6 +265,8 @@ impl Popup {
                 }
             }
         }
+
+        self.retired_frames.extend(retired_frames);
 
         surface::restack(&self.surfaces, config);
     }
@@ -279,8 +309,10 @@ impl Popup {
     }
 
     pub(in crate::popup) fn close(&mut self, qh: &QueueHandle<Self>, id: u32) {
-        self.notifications.remove(&id);
-        self.surfaces.remove(&id);
+        self.notification_ids.remove(&id);
+        if let Some(surfaces) = self.surfaces.remove(&id) {
+            self.retire_surfaces(surfaces);
+        }
         {
             let config_handle = Arc::clone(&self.config);
             let config = config_handle.read().expect("config lock poisoned");
@@ -291,20 +323,63 @@ impl Popup {
     fn reload_config(&mut self, qh: &QueueHandle<Self>) {
         let config_handle = Arc::clone(&self.config);
         let config = config_handle.read().expect("config lock poisoned");
-        let width = config.notification.max_width;
-
         for surfaces in self.surfaces.values_mut() {
             for surface in surfaces {
                 surface.update_position(&config.notification.position);
-                surface.full_width = width;
-                surface.full_height = render::card::measure_card_height(
-                    &surface.notification,
-                    width,
-                    &mut self.fonts,
-                );
             }
         }
 
         self.reflow(qh, &config);
+    }
+
+    pub(in crate::popup) fn collect_released_frames(&mut self) {
+        self.retired_frames.retain(|frame| !frame.released());
+    }
+
+    pub(in crate::popup) fn retire_surface(&mut self, mut surface: NotificationSurface) {
+        if let Some(frame) = surface.take_frame() {
+            self.retired_frames.push(frame);
+        }
+    }
+
+    pub(in crate::popup) fn retire_surfaces(
+        &mut self,
+        surfaces: impl IntoIterator<Item = NotificationSurface>,
+    ) {
+        for surface in surfaces {
+            self.retire_surface(surface);
+        }
+    }
+
+    fn clear_surfaces(&mut self) {
+        let surfaces = std::mem::take(&mut self.surfaces)
+            .into_values()
+            .flatten()
+            .collect::<Vec<_>>();
+        self.retire_surfaces(surfaces);
+    }
+
+    fn retain_surfaces(&mut self, keep: impl Fn(u32, &NotificationSurface) -> bool) {
+        let mut retained = BTreeMap::new();
+        let mut removed = Vec::new();
+        for (id, surfaces) in std::mem::take(&mut self.surfaces) {
+            let mut kept = Vec::new();
+            for surface in surfaces {
+                if keep(id, &surface) {
+                    kept.push(surface);
+                } else {
+                    removed.push(surface);
+                }
+            }
+            if !kept.is_empty() {
+                retained.insert(id, kept);
+            }
+        }
+        self.surfaces = retained;
+        self.retire_surfaces(removed);
+    }
+
+    pub(in crate::popup) fn remove_output(&mut self, output: &wl_output::WlOutput) {
+        self.retain_surfaces(|_, surface| surface.output != *output);
     }
 }

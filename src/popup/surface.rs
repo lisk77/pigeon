@@ -1,5 +1,4 @@
 use std::collections::BTreeMap;
-use std::sync::Arc;
 
 use smithay_client_toolkit::{
     compositor::CompositorState,
@@ -11,7 +10,10 @@ use smithay_client_toolkit::{
         WaylandSurface,
         wlr_layer::{Anchor, KeyboardInteractivity, Layer, LayerShell, LayerSurface},
     },
-    shm::slot::{Buffer, SlotPool},
+    shm::{
+        Shm,
+        slot::{Buffer, SlotPool},
+    },
 };
 
 use super::Popup;
@@ -25,7 +27,7 @@ use crate::{
 };
 
 pub(super) struct NotificationSurface {
-    pub(super) notification: Arc<Notification>,
+    pub(super) generation: u64,
     pub(super) output: wl_output::WlOutput,
     pub(super) layer: LayerSurface,
     pub(super) configured: bool,
@@ -33,7 +35,18 @@ pub(super) struct NotificationSurface {
     pub(super) height: u32,
     pub(super) full_width: u32,
     pub(super) full_height: u32,
-    buffer: Option<Buffer>,
+    frame: Option<Frame>,
+}
+
+pub(super) struct Frame {
+    buffer: Buffer,
+    _pool: SlotPool,
+}
+
+impl Frame {
+    pub(super) fn released(&self) -> bool {
+        !self.buffer.slot().has_active_buffers()
+    }
 }
 
 impl NotificationSurface {
@@ -41,7 +54,7 @@ impl NotificationSurface {
         qh: &QueueHandle<Popup>,
         compositor: &CompositorState,
         layer_shell: &LayerShell,
-        notification: Arc<Notification>,
+        generation: u64,
         output: wl_output::WlOutput,
         width: u32,
         height: u32,
@@ -63,7 +76,7 @@ impl NotificationSurface {
         layer.set_size(width, height);
 
         Self {
-            notification,
+            generation,
             output,
             layer,
             configured: false,
@@ -71,7 +84,7 @@ impl NotificationSurface {
             height,
             full_width,
             full_height,
-            buffer: None,
+            frame: None,
         }
     }
 
@@ -79,17 +92,29 @@ impl NotificationSurface {
         self.layer.set_anchor(anchor_for(&position.anchor));
     }
 
-    pub(super) fn draw(&mut self, pool: &mut SlotPool, fonts: &mut FontCtx) {
+    pub(super) fn draw(
+        &mut self,
+        shm: &Shm,
+        fonts: &mut FontCtx,
+        notification: &Notification,
+    ) -> Option<Frame> {
         if !self.configured {
-            return;
+            return None;
         }
 
-        let stride = (self.width * 4) as i32;
+        let stride = self
+            .width
+            .checked_mul(4)
+            .expect("notification buffer stride overflow");
+        let bytes = (stride as usize)
+            .checked_mul(self.height as usize)
+            .expect("notification buffer size overflow");
+        let mut pool = SlotPool::new(bytes, shm).expect("allocate notification buffer pool");
         let (buffer, canvas) = pool
             .create_buffer(
                 self.width as i32,
                 self.height as i32,
-                stride,
+                stride as i32,
                 wl_shm::Format::Argb8888,
             )
             .expect("allocate notification buffer");
@@ -99,7 +124,7 @@ impl NotificationSurface {
             self.height,
             self.full_width,
             self.full_height,
-            &self.notification,
+            notification,
             fonts,
         );
         fonts.clear_raster_cache();
@@ -112,7 +137,14 @@ impl NotificationSurface {
             .expect("attach notification buffer");
         self.layer.commit();
 
-        self.buffer = Some(buffer);
+        self.frame.replace(Frame {
+            buffer,
+            _pool: pool,
+        })
+    }
+
+    pub(super) fn take_frame(&mut self) -> Option<Frame> {
+        self.frame.take()
     }
 }
 
