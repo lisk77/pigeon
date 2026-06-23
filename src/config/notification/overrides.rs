@@ -151,6 +151,7 @@ pub struct ProgressOverride {
     pub thickness: Option<ProgressThickness>,
     pub alignment: Option<ProgressAlignment>,
     pub inset: Option<u32>,
+    pub corner_radius: Option<u32>,
     #[serde(default, deserialize_with = "deserialize_optional_rgba_color")]
     pub color: Option<[u8; 4]>,
 }
@@ -168,6 +169,9 @@ impl ProgressOverride {
         }
         if let Some(value) = self.inset {
             config.progress.inset = value;
+        }
+        if let Some(value) = self.corner_radius {
+            config.progress.corner_radius = value;
         }
         if let Some(value) = self.color {
             config.progress.color = value;

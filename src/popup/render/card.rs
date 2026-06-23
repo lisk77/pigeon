@@ -188,14 +188,20 @@ struct ProgressRect {
     y: u32,
     width: u32,
     height: u32,
+    corner_radius: u32,
 }
 
 impl ProgressRect {
     fn contains(self, x: u32, y: u32) -> bool {
         x >= self.x
-            && x < self.x.saturating_add(self.width)
             && y >= self.y
-            && y < self.y.saturating_add(self.height)
+            && rounded_rect_contains(
+                x - self.x,
+                y - self.y,
+                self.width,
+                self.height,
+                self.corner_radius,
+            )
     }
 }
 
@@ -237,6 +243,7 @@ fn progress_rect(
             y,
             width: fill_width,
             height: thickness,
+            corner_radius: config.corner_radius,
         })
     } else {
         let thickness = config.thickness.resolve(width);
@@ -255,6 +262,7 @@ fn progress_rect(
             y,
             width: thickness,
             height: fill_height,
+            corner_radius: config.corner_radius,
         })
     }
 }

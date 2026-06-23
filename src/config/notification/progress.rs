@@ -9,6 +9,7 @@ pub struct ProgressConfig {
     pub thickness: ProgressThickness,
     pub alignment: ProgressAlignment,
     pub inset: u32,
+    pub corner_radius: u32,
     #[serde(deserialize_with = "deserialize_rgba_color")]
     pub color: [u8; 4],
 }
@@ -20,6 +21,7 @@ impl Default for ProgressConfig {
             thickness: ProgressThickness::Percent(100.0),
             alignment: ProgressAlignment::Center,
             inset: 0,
+            corner_radius: 0,
             color: [0xac, 0x81, 0x5e, 0x80],
         }
     }
