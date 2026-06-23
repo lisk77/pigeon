@@ -13,6 +13,7 @@ pub struct NotificationStyleOverride {
     pub format: Option<NotificationTemplate>,
     #[serde(default, deserialize_with = "deserialize_optional_rgba_color")]
     pub color: Option<[u8; 4]>,
+    pub emoji_font: Option<String>,
     pub border: BorderOverride,
     pub thumbnail: ThumbnailOverride,
     pub summary: SummaryOverride,
@@ -38,6 +39,9 @@ impl NotificationStyleOverride {
         }
         if let Some(value) = self.color {
             resolved.color = value;
+        }
+        if let Some(value) = &self.emoji_font {
+            resolved.emoji_font = value.clone();
         }
 
         self.border.apply_to(&mut resolved);

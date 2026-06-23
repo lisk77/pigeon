@@ -28,6 +28,7 @@ pub struct NotificationConfig {
     pub format: template::NotificationTemplate,
     #[serde(deserialize_with = "deserialize_rgba_color")]
     pub color: [u8; 4],
+    pub emoji_font: String,
     pub position: position::PositionConfig,
     pub progress: progress::ProgressConfig,
     pub border: border::BorderConfig,
@@ -50,6 +51,7 @@ impl Default for NotificationConfig {
             corner_radius: 12,
             format: template::NotificationTemplate::default(),
             color: [0x20, 0x20, 0x20, 0xff],
+            emoji_font: "Noto Color Emoji".into(),
             position: position::PositionConfig::default(),
             progress: progress::ProgressConfig::default(),
             border: border::BorderConfig::default(),

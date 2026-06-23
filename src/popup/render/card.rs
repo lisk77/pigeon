@@ -79,6 +79,7 @@ pub fn render_card(
             &summary_runs,
             text_width,
             &notification_config.summary.text,
+            &notification_config.emoji_font,
         );
         let body_y = (outer_padding as f32 + summary_height + summary_body_gap).ceil() as u32;
         let body_height = full_height
@@ -96,6 +97,7 @@ pub fn render_card(
             text_width,
             summary_height.ceil() as u32,
             &notification_config.summary.text,
+            &notification_config.emoji_font,
         );
 
         draw_styled_text(
@@ -109,6 +111,7 @@ pub fn render_card(
             text_width,
             body_height,
             &notification_config.body.text,
+            &notification_config.emoji_font,
         );
     } else {
         let runs = notification_config.format.runs(notification);
@@ -125,6 +128,7 @@ pub fn render_card(
             text_width,
             text_height,
             &notification_config.body.text,
+            &notification_config.emoji_font,
         );
     }
 }
@@ -341,12 +345,14 @@ pub fn measure_card_height(notification: &Notification, width: u32, fonts: &mut 
             &summary_runs,
             text_width,
             &notification_config.summary.text,
+            &notification_config.emoji_font,
         );
         let body_height = measure_styled_text_height(
             fonts,
             &body_runs,
             text_width,
             &notification_config.body.text,
+            &notification_config.emoji_font,
         );
         summary_height + notification_config.summary.bottom_gap + body_height
     } else {
@@ -357,6 +363,7 @@ pub fn measure_card_height(notification: &Notification, width: u32, fonts: &mut 
             &styled_runs,
             text_width,
             &notification_config.body.text,
+            &notification_config.emoji_font,
         )
     };
     let content_height = if notification.img.is_some() {
