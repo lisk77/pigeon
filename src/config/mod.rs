@@ -22,6 +22,8 @@ pub type SharedConfig = Arc<RwLock<PigeonConfig>>;
 #[derive(Debug, Deserialize)]
 #[serde(default)]
 pub struct PigeonConfig {
+    #[serde(skip)]
+    path: PathBuf,
     pub timeouts: TimeoutConfig,
     pub notification: NotificationConfig,
     pub profile: ProfileConfig,
@@ -34,6 +36,7 @@ impl Default for PigeonConfig {
         profiles.insert("default".into(), Profile::default());
 
         Self {
+            path: Self::default_path(),
             timeouts: TimeoutConfig::default(),
             notification: NotificationConfig::default(),
             profile: ProfileConfig::default(),
@@ -44,11 +47,13 @@ impl Default for PigeonConfig {
 
 impl PigeonConfig {
     pub fn load(path: impl AsRef<Path>) -> Result<Self, config::ConfigError> {
+        let path = path.as_ref().to_path_buf();
         let mut config: Self = Config::builder()
-            .add_source(File::from(path.as_ref()).required(false))
+            .add_source(File::from(path.as_path()).required(false))
             .build()?
             .try_deserialize()?;
 
+        config.path = path;
         config.profiles.entry("default".into()).or_default();
         config.validate()?;
         Ok(config)
@@ -59,11 +64,15 @@ impl PigeonConfig {
     }
 
     pub fn load_or_default(path: impl AsRef<Path>) -> Self {
-        match Self::load(path) {
+        let path = path.as_ref().to_path_buf();
+        match Self::load(&path) {
             Ok(config) => config,
             Err(error) => {
                 eprintln!("config load failed; using defaults: {error}");
-                Self::default()
+                Self {
+                    path,
+                    ..Self::default()
+                }
             }
         }
     }
@@ -83,6 +92,10 @@ impl PigeonConfig {
             .unwrap_or_else(|| PathBuf::from("."));
 
         config_home.join("pigeond/config.toml")
+    }
+
+    pub fn path(&self) -> &Path {
+        &self.path
     }
 
     pub fn profile(&self, name: &str) -> Option<&Profile> {
