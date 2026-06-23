@@ -2,7 +2,10 @@ mod rules;
 
 use serde::{Deserialize, Serialize};
 
-use crate::{config::notification::NotificationStyleOverride, notification::Notification};
+use crate::{
+    config::{TimeoutOverride, notification::NotificationStyleOverride},
+    notification::Notification,
+};
 
 pub use rules::{Rule, RuleAction};
 
@@ -28,6 +31,7 @@ pub struct Profile {
     pub default_action: RuleAction,
     pub rules: Vec<Rule>,
     pub notification: NotificationStyleOverride,
+    pub timeouts: TimeoutOverride,
 }
 
 impl Default for Profile {
@@ -36,6 +40,7 @@ impl Default for Profile {
             default_action: RuleAction::Allow,
             rules: Vec::new(),
             notification: NotificationStyleOverride::default(),
+            timeouts: TimeoutOverride::default(),
         }
     }
 }
@@ -45,6 +50,7 @@ impl Profile {
         self.default_action == RuleAction::Allow
             && self.rules.is_empty()
             && self.notification.is_empty()
+            && self.timeouts.is_empty()
     }
 
     pub fn matching_rule(&self, notification: &Notification) -> Option<&Rule> {

@@ -15,7 +15,7 @@ mod timeouts;
 
 pub use notification::NotificationConfig;
 pub use profiles::{Profile, ProfileConfig, RuleAction};
-pub use timeouts::TimeoutConfig;
+pub use timeouts::{TimeoutConfig, TimeoutOverride};
 
 pub type SharedConfig = Arc<RwLock<PigeonConfig>>;
 
@@ -114,7 +114,7 @@ impl PigeonConfig {
     pub fn presentation_for(
         &self,
         notification: &Notification,
-    ) -> (RuleAction, NotificationConfig) {
+    ) -> (RuleAction, NotificationConfig, TimeoutConfig) {
         if self.profile.allow_profile_override {
             if let Some(name) = notification.profile() {
                 if let Some(presentation) = self.profile_presentation(name, notification) {
@@ -131,20 +131,28 @@ impl PigeonConfig {
         &self,
         name: &str,
         notification: &Notification,
-    ) -> Option<(RuleAction, NotificationConfig)> {
-        match self.profile(name) {
-            Some(profile) => {
-                let profile_style = profile.notification.apply_to(&self.notification);
+    ) -> Option<(RuleAction, NotificationConfig, TimeoutConfig)> {
+        let default_profile = self.profile("default")?;
+        let default_style = default_profile.notification.apply_to(&self.notification);
+        let default_timeouts = default_profile.timeouts.apply_to(&self.timeouts);
+        let profile = self.profile(name)?;
 
-                match profile.matching_rule(notification) {
-                    Some(rule) => Some((
-                        rule.action.unwrap_or(profile.default_action),
-                        rule.notification.apply_to(&profile_style),
-                    )),
-                    None => Some((profile.default_action, profile_style)),
-                }
-            }
-            None => None,
+        let (profile_style, profile_timeouts) = if name == "default" {
+            (default_style, default_timeouts)
+        } else {
+            (
+                profile.notification.apply_to(&default_style),
+                profile.timeouts.apply_to(&default_timeouts),
+            )
+        };
+
+        match profile.matching_rule(notification) {
+            Some(rule) => Some((
+                rule.action.unwrap_or(profile.default_action),
+                rule.notification.apply_to(&profile_style),
+                profile_timeouts,
+            )),
+            None => Some((profile.default_action, profile_style, profile_timeouts)),
         }
     }
 

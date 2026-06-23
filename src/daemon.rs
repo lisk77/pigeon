@@ -75,7 +75,7 @@ impl Pigeon {
             style: crate::config::NotificationConfig::default(),
         };
 
-        let (action, style) = {
+        let (action, style, timeouts) = {
             let config = self.config.read().expect("config lock poisoned");
             config.presentation_for(&notification)
         };
@@ -103,7 +103,7 @@ impl Pigeon {
 
         let timeout = match expire_timeout {
             0 => None,
-            -1 => configured_timeout(&self.config, &notification.hints),
+            -1 => configured_timeout(&timeouts, &notification.hints),
             milliseconds if milliseconds > 0 => {
                 Some(std::time::Duration::from_millis(milliseconds as u64))
             }
@@ -201,17 +201,16 @@ fn same_source(left: &Notification, right: &Notification) -> bool {
 }
 
 fn configured_timeout(
-    config: &SharedConfig,
+    timeouts: &crate::config::TimeoutConfig,
     hints: &HashMap<String, OwnedValue>,
 ) -> Option<std::time::Duration> {
-    let config = config.read().expect("config lock poisoned");
     let timeout = match hints
         .get("urgency")
         .and_then(|urgency| urgency.downcast_ref::<u8>().ok())
     {
-        Some(0) => config.timeouts.low_timeout,
-        Some(2) => config.timeouts.critical_timeout,
-        _ => config.timeouts.normal_timeout,
+        Some(0) => timeouts.low_timeout,
+        Some(2) => timeouts.critical_timeout,
+        _ => timeouts.normal_timeout,
     };
     (timeout != u64::MAX).then(|| std::time::Duration::from_millis(timeout))
 }
