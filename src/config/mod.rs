@@ -23,7 +23,7 @@ pub type SharedConfig = Arc<RwLock<PigeonConfig>>;
 #[serde(default)]
 pub struct PigeonConfig {
     #[serde(skip)]
-    path: PathBuf,
+    pub path: PathBuf,
     pub timeouts: TimeoutConfig,
     pub notification: NotificationConfig,
     pub profile: ProfileConfig,
