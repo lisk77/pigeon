@@ -88,9 +88,14 @@ impl Pigeon {
         }
         notification.style = style;
 
-        notification.img = decode_notification_image(&notification.hints, &notification.app_icon);
+        notification.img = decode_notification_image(
+            &notification.hints,
+            &notification.app_icon,
+            notification.style.thumbnail.size,
+        );
         notification.hints.remove("image-data");
         notification.hints.remove("image_data");
+        notification.hints.remove("icon_data");
         notification.actions = actions
             .chunks_exact(2)
             .map(|pair| (pair[0].clone(), pair[1].clone()))
@@ -98,7 +103,7 @@ impl Pigeon {
 
         let timeout = match expire_timeout {
             0 => None,
-            -1 => Some(configured_timeout(&self.config, &notification.hints)),
+            -1 => configured_timeout(&self.config, &notification.hints),
             milliseconds if milliseconds > 0 => {
                 Some(std::time::Duration::from_millis(milliseconds as u64))
             }
@@ -198,7 +203,7 @@ fn same_source(left: &Notification, right: &Notification) -> bool {
 fn configured_timeout(
     config: &SharedConfig,
     hints: &HashMap<String, OwnedValue>,
-) -> std::time::Duration {
+) -> Option<std::time::Duration> {
     let config = config.read().expect("config lock poisoned");
     let timeout = match hints
         .get("urgency")
@@ -208,5 +213,5 @@ fn configured_timeout(
         Some(2) => config.timeouts.critical_timeout,
         _ => config.timeouts.normal_timeout,
     };
-    std::time::Duration::from_millis(timeout)
+    (timeout != u64::MAX).then(|| std::time::Duration::from_millis(timeout))
 }

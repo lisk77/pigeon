@@ -10,7 +10,7 @@ pub fn draw_thumbnail(
     box_width: u32,
     box_height: u32,
 ) {
-    let thumbnail = image.inner().thumbnail(box_width, box_height).to_rgba8();
+    let thumbnail = image.inner();
 
     let draw_x = box_x + (box_width - thumbnail.width()) / 2;
     let draw_y = box_y + (box_height - thumbnail.height()) / 2;

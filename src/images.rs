@@ -1,20 +1,20 @@
 use std::collections::HashMap;
 
-use image::{DynamicImage, GenericImageView, ImageReader, Limits, RgbImage, RgbaImage};
+use image::{DynamicImage, ImageReader, Limits, RgbImage, RgbaImage, imageops};
 use zbus::zvariant::OwnedValue;
 
 const MAX_IMAGE_DIMENSION: u32 = 4096;
 const MAX_IMAGE_BYTES: u64 = 64 * 1024 * 1024;
 
 #[derive(Clone)]
-pub struct Image(DynamicImage);
+pub struct Image(RgbaImage);
 
 impl Image {
     pub fn dimensions(&self) -> (u32, u32) {
         self.inner().dimensions()
     }
 
-    pub fn inner(&self) -> &DynamicImage {
+    pub fn inner(&self) -> &RgbaImage {
         &self.0
     }
 }
@@ -22,10 +22,16 @@ impl Image {
 pub fn decode_notification_image(
     hints: &HashMap<String, OwnedValue>,
     app_icon: &str,
+    thumbnail_size: u32,
 ) -> Option<Image> {
+    if thumbnail_size == 0 {
+        return None;
+    }
+
     hints
         .get("image-data")
         .or_else(|| hints.get("image_data"))
+        .or_else(|| hints.get("icon_data"))
         .and_then(decode_raw_image)
         .or_else(|| {
             hints
@@ -34,6 +40,13 @@ pub fn decode_notification_image(
                 .and_then(decode_image_path_hint)
         })
         .or_else(|| decode_app_icon(app_icon))
+        .map(|image| {
+            Image(imageops::thumbnail(
+                &image.0,
+                thumbnail_size,
+                thumbnail_size,
+            ))
+        })
 }
 
 fn decode_raw_image(value: &OwnedValue) -> Option<Image> {
@@ -83,10 +96,10 @@ fn decode_raw_image(value: &OwnedValue) -> Option<Image> {
     match (has_alpha, channels) {
         (false, 3) => RgbImage::from_raw(width, height, pixels)
             .map(DynamicImage::ImageRgb8)
-            .map(Image),
+            .map(|image| Image(image.to_rgba8())),
         (true, 4) => RgbaImage::from_raw(width, height, pixels)
             .map(DynamicImage::ImageRgba8)
-            .map(Image),
+            .map(|image| Image(image.to_rgba8())),
         _ => None,
     }
 }
@@ -117,5 +130,5 @@ fn decode_image_path(path: &str) -> Option<Image> {
     limits.max_image_height = Some(MAX_IMAGE_DIMENSION);
     limits.max_alloc = Some(MAX_IMAGE_BYTES);
     reader.limits(limits);
-    reader.decode().ok().map(Image)
+    reader.decode().ok().map(|image| Image(image.to_rgba8()))
 }
