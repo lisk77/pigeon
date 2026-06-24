@@ -3,7 +3,14 @@ use pigeond::cli::{
     Cli, Command, ConfigSubcommand, ProfileSubcommand, config::*, profile::*, serve::serve,
 };
 
-fn main() -> Result<(), Box<dyn std::error::Error>> {
+fn main() {
+    if let Err(error) = run() {
+        eprintln!("Error: {error}");
+        std::process::exit(1);
+    }
+}
+
+fn run() -> Result<(), Box<dyn std::error::Error>> {
     match Cli::parse().command {
         Command::Serve => serve(),
         Command::Profile(cmd) => match cmd.command {

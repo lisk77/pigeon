@@ -20,7 +20,7 @@ use super::Popup;
 use super::render::{self, text::FontCtx};
 use crate::{
     config::{
-        PigeonConfig,
+        NotificationConfig, PigeonConfig,
         notification::{Anchor as PositionAnchor, PositionConfig},
     },
     notification::Notification,
@@ -97,6 +97,7 @@ impl NotificationSurface {
         shm: &Shm,
         fonts: &mut FontCtx,
         notification: &Notification,
+        style: &NotificationConfig,
     ) -> Option<Frame> {
         if !self.configured {
             return None;
@@ -125,6 +126,7 @@ impl NotificationSurface {
             self.full_width,
             self.full_height,
             notification,
+            style,
             fonts,
         );
         fonts.clear_raster_cache();
@@ -161,7 +163,11 @@ fn anchor_for(anchor: &PositionAnchor) -> Anchor {
     }
 }
 
-pub(super) fn restack(surfaces: &BTreeMap<u32, Vec<NotificationSurface>>, config: &PigeonConfig) {
+pub(super) fn restack(
+    surfaces: &BTreeMap<u32, Vec<NotificationSurface>>,
+    ordered_ids: &[u32],
+    config: &PigeonConfig,
+) {
     let position = &config.notification.position;
     let mut outputs = Vec::new();
     for surface in surfaces.values().flatten() {
@@ -182,7 +188,10 @@ pub(super) fn restack(surfaces: &BTreeMap<u32, Vec<NotificationSurface>>, config
             PositionAnchor::Right => position.right_margin as i32,
         };
 
-        for notification_surfaces in surfaces.values() {
+        for id in ordered_ids {
+            let Some(notification_surfaces) = surfaces.get(id) else {
+                continue;
+            };
             let Some(surface) = notification_surfaces
                 .iter()
                 .find(|surface| surface.output == output)

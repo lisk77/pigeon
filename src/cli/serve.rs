@@ -1,6 +1,6 @@
 use crate::{
     config::{PigeonConfig, SharedConfig},
-    daemon::Pigeon,
+    daemon::{LifecycleCommand, Pigeon, SharedQueue, refresh_queue_presentation, run_lifecycle},
     popup::{self, Popup, PopupEvent},
 };
 use notify::{Event, EventKind, RecommendedWatcher, RecursiveMode, Watcher};
@@ -9,22 +9,25 @@ use zbus::connection::Builder;
 
 pub fn serve() -> Result<(), Box<dyn std::error::Error>> {
     let config: SharedConfig = Arc::new(std::sync::RwLock::new(PigeonConfig::load_startup()));
-
     let (event_proxy, event_source) = popup::channel();
-    let _config_watcher = match watch_config(Arc::clone(&config), event_proxy.clone()) {
-        Ok(watcher) => Some(watcher),
-        Err(error) => {
-            eprintln!("config hot reload disabled: {error}");
-            None
-        }
-    };
-    let dismiss_events = event_proxy.clone();
-    let (dismiss_sender, dismiss_receiver) = tokio::sync::mpsc::unbounded_channel::<u32>();
-    let runtime = tokio::runtime::Runtime::new()?;
+    let pigeon = Pigeon::new(event_proxy.clone(), Arc::clone(&config));
+    let queue = pigeon.queue();
+    let image_cache = pigeon.image_cache();
+    let _config_watcher =
+        match watch_config(Arc::clone(&config), event_proxy.clone(), Arc::clone(&queue)) {
+            Ok(watcher) => Some(watcher),
+            Err(error) => {
+                eprintln!("config hot reload disabled: {error}");
+                None
+            }
+        };
 
-    let pigeon = Pigeon::new(event_proxy, Arc::clone(&config));
-    let notifications = pigeon.notifications();
-
+    let runtime = tokio::runtime::Builder::new_multi_thread()
+        .worker_threads(1)
+        .enable_all()
+        .build()?;
+    let (lifecycle_sender, lifecycle_receiver) =
+        tokio::sync::mpsc::unbounded_channel::<LifecycleCommand>();
     let connection = runtime.block_on(async {
         Builder::session()?
             .name("org.freedesktop.Notifications")?
@@ -33,26 +36,23 @@ pub fn serve() -> Result<(), Box<dyn std::error::Error>> {
             .await
     })?;
 
-    let dismiss_connection = connection.clone();
-    let dismiss_notifications = Arc::clone(&notifications);
+    runtime.spawn(run_lifecycle(
+        connection,
+        Arc::clone(&queue),
+        image_cache,
+        event_proxy,
+        lifecycle_sender.clone(),
+        lifecycle_receiver,
+    ));
 
-    runtime.spawn(async move {
-        dismiss_reaction(
-            dismiss_connection,
-            dismiss_events,
-            dismiss_notifications,
-            dismiss_receiver,
-        )
-        .await;
-    });
-
-    Popup::run(event_source, dismiss_sender, config, notifications)?;
+    Popup::run(event_source, config, queue, lifecycle_sender)?;
     Ok(())
 }
 
 fn watch_config(
     config: SharedConfig,
     reload_sender: popup::PopupSender,
+    queue: SharedQueue,
 ) -> Result<RecommendedWatcher, Box<dyn std::error::Error>> {
     let config_path = PigeonConfig::default_path();
     let watched_path = if config_path.is_absolute() {
@@ -74,7 +74,10 @@ fn watch_config(
 
             match PigeonConfig::load(&reload_path) {
                 Ok(new_config) => {
-                    *config.write().expect("config lock poisoned") = new_config;
+                    let mut config = config.write().expect("config lock poisoned");
+                    *config = new_config;
+                    refresh_queue_presentation(&queue, &config);
+                    drop(config);
                     let _ = reload_sender.send(PopupEvent::ReloadConfig);
                     eprintln!("config reloaded");
                 }
@@ -100,52 +103,4 @@ fn is_config_change(event: &Event, config_path: &Path) -> bool {
         event.kind,
         EventKind::Create(_) | EventKind::Modify(_) | EventKind::Remove(_)
     ) && event.paths.iter().any(|path| path == config_path)
-}
-
-async fn dismiss_reaction(
-    dismiss_connection: zbus::Connection,
-    dismiss_events: popup::PopupSender,
-    notifications: crate::daemon::SharedNotifications,
-    mut dismiss_receiver: tokio::sync::mpsc::UnboundedReceiver<u32>,
-) {
-    while let Some(id) = dismiss_receiver.recv().await {
-        let Some(notification) = notifications.lock().unwrap().remove(&id) else {
-            continue;
-        };
-
-        let action_key = notification
-            .notification
-            .actions
-            .get_key_value("default")
-            .map(|(key, _)| key.clone());
-
-        let action_invoked = if let Some(action_key) = action_key {
-            let _ = dismiss_connection
-                .emit_signal(
-                    None::<&str>,
-                    "/org/freedesktop/Notifications",
-                    "org.freedesktop.Notifications",
-                    "ActionInvoked",
-                    &(id, &action_key),
-                )
-                .await;
-            true
-        } else {
-            false
-        };
-
-        let _ = dismiss_events.send(PopupEvent::Close(id));
-
-        if !action_invoked {
-            let _ = dismiss_connection
-                .emit_signal(
-                    None::<&str>,
-                    "/org/freedesktop/Notifications",
-                    "org.freedesktop.Notifications",
-                    "NotificationClosed",
-                    &(id, 2_u32),
-                )
-                .await;
-        }
-    }
 }

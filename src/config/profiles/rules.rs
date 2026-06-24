@@ -54,12 +54,10 @@ impl Rule {
             && self
                 .resident
                 .map_or(true, |expected| notification.resident() == Some(expected))
-            && self.hints.iter().all(|(key, expected)| {
-                notification
-                    .hint(key)
-                    .and_then(|hint| <&str>::try_from(hint).ok())
-                    == Some(expected.as_str())
-            })
+            && self
+                .hints
+                .iter()
+                .all(|(key, expected)| notification.hint(key) == Some(expected.as_str()))
     }
 
     pub fn has_matcher(&self) -> bool {

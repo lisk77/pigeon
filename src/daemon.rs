@@ -1,44 +1,132 @@
+use std::{
+    collections::{BTreeMap, HashMap, VecDeque},
+    sync::{Arc, Mutex},
+    time::Duration,
+};
+
+use tokio::sync::mpsc::UnboundedSender;
+use zbus::{Connection, object_server::SignalEmitter, zvariant::OwnedValue};
+
 use crate::{
-    config::{RuleAction, SharedConfig},
-    images::decode_notification_image,
-    notification::Notification,
+    config::{NotificationConfig, PigeonConfig, RuleAction, SharedConfig, TimeoutConfig},
+    images::ImageCache,
+    notification::{Notification, NotificationHints},
     popup::{PopupEvent, PopupSender},
 };
-use std::{
-    collections::HashMap,
-    sync::{
-        Arc, Mutex,
-        atomic::{AtomicU32, Ordering},
-    },
-};
-use zbus::{object_server::SignalEmitter, zvariant::OwnedValue};
 
-pub struct StoredNotification {
-    pub generation: u64,
-    pub notification: Notification,
+const MAX_LIVE_NOTIFICATIONS: usize = 32;
+const MAX_SHORT_TEXT_BYTES: usize = 4 * 1024;
+const MAX_BODY_BYTES: usize = 64 * 1024;
+const MAX_ACTION_PAIRS: usize = 32;
+
+pub type SharedQueue = Arc<Mutex<NotificationQueue>>;
+
+pub struct NotificationQueue {
+    next_id: u32,
+    pub(crate) entries: VecDeque<QueueEntry>,
 }
 
-pub type SharedNotifications = Arc<Mutex<HashMap<u32, StoredNotification>>>;
+pub(crate) struct QueueEntry {
+    pub(crate) notification: Notification,
+    pub(crate) generation: u64,
+    pub(crate) style: NotificationConfig,
+    timeout_policy: TimeoutPolicy,
+    pub(crate) timeout: Option<Duration>,
+    pub(crate) timer_started: bool,
+}
+
+#[derive(Clone, Copy)]
+enum TimeoutPolicy {
+    Never,
+    Fixed(Duration),
+    Configured,
+}
+
+pub enum LifecycleCommand {
+    Visible { id: u32, generation: u64 },
+    Dismiss { id: u32 },
+    Expire { id: u32, generation: u64 },
+}
 
 pub struct Pigeon {
-    next_id: AtomicU32,
-    notifications: SharedNotifications,
+    queue: SharedQueue,
+    image_cache: Arc<Mutex<ImageCache>>,
     event_proxy: PopupSender,
     config: SharedConfig,
+}
+
+impl NotificationQueue {
+    fn new() -> Self {
+        Self {
+            next_id: 1,
+            entries: VecDeque::new(),
+        }
+    }
+
+    fn next_id(&mut self) -> u32 {
+        loop {
+            let id = self.next_id;
+            self.next_id = self.next_id.wrapping_add(1);
+            if self.next_id == 0 {
+                self.next_id = 1;
+            }
+            if id != 0 && !self.entries.iter().any(|entry| entry.notification.id == id) {
+                return id;
+            }
+        }
+    }
+
+    fn find_replacement(&self, replaces_id: u32, candidate: &Notification) -> Option<usize> {
+        if replaces_id != 0 {
+            return self
+                .entries
+                .iter()
+                .position(|entry| entry.notification.id == replaces_id);
+        }
+
+        let tag = candidate.stack_tag()?;
+        self.entries.iter().position(|entry| {
+            entry.notification.stack_tag() == Some(tag)
+                && same_source(&entry.notification, candidate)
+        })
+    }
+
+    fn refresh_presentation(&mut self, config: &PigeonConfig) {
+        for entry in &mut self.entries {
+            let (_, style, timeouts) = config.presentation_for(&entry.notification);
+            entry.style = style;
+            if !entry.timer_started {
+                entry.timeout =
+                    resolve_timeout(entry.timeout_policy, &timeouts, &entry.notification);
+            }
+        }
+    }
+
+    fn remove(&mut self, id: u32, generation: Option<u64>) -> Option<QueueEntry> {
+        let index = self.entries.iter().position(|entry| {
+            entry.notification.id == id
+                && generation.is_none_or(|generation| entry.generation == generation)
+        })?;
+        self.entries.remove(index)
+    }
 }
 
 impl Pigeon {
     pub fn new(event_proxy: PopupSender, config: SharedConfig) -> Self {
         Self {
-            next_id: AtomicU32::new(1),
-            notifications: Arc::new(Mutex::new(HashMap::new())),
+            queue: Arc::new(Mutex::new(NotificationQueue::new())),
+            image_cache: Arc::new(Mutex::new(ImageCache::default())),
             event_proxy,
             config,
         }
     }
 
-    pub fn notifications(&self) -> SharedNotifications {
-        Arc::clone(&self.notifications)
+    pub fn queue(&self) -> SharedQueue {
+        Arc::clone(&self.queue)
+    }
+
+    pub fn image_cache(&self) -> Arc<Mutex<ImageCache>> {
+        Arc::clone(&self.image_cache)
     }
 }
 
@@ -65,123 +153,85 @@ impl Pigeon {
         summary: String,
         body: String,
         actions: Vec<String>,
-        hints: HashMap<String, OwnedValue>,
+        mut hints: HashMap<String, OwnedValue>,
         expire_timeout: i32,
         #[zbus(signal_emitter)] emitter: SignalEmitter<'_>,
     ) -> u32 {
         let mut notification = Notification {
             id: 0,
-            replaces_id,
-            app_name,
-            app_icon,
-            summary,
-            body,
+            app_name: truncate(app_name, MAX_SHORT_TEXT_BYTES),
+            app_icon: truncate(app_icon, MAX_SHORT_TEXT_BYTES),
+            summary: truncate(summary, MAX_SHORT_TEXT_BYTES),
+            body: truncate(body, MAX_BODY_BYTES),
             img: None,
-            actions: HashMap::new(),
-            hints,
-            style: crate::config::NotificationConfig::default(),
+            actions: normalize_actions(actions),
+            hints: normalize_hints(&hints),
         };
 
         let (action, style, timeouts) = {
             let config = self.config.read().expect("config lock poisoned");
             config.presentation_for(&notification)
         };
+        let timeout_policy = timeout_policy(expire_timeout);
+
         if action == RuleAction::Block {
-            return if replaces_id != 0 {
-                replaces_id
-            } else {
-                self.next_id.fetch_add(1, Ordering::Relaxed)
-            };
+            let id = self.queue.lock().expect("queue lock poisoned").next_id();
+            return id;
         }
-        notification.style = style;
 
-        notification.img = decode_notification_image(
-            &notification.hints,
-            &notification.app_icon,
-            notification.style.thumbnail.size,
-        );
-        notification.hints.remove("image-data");
-        notification.hints.remove("image_data");
-        notification.hints.remove("icon_data");
-        notification.actions = actions
-            .chunks_exact(2)
-            .map(|pair| (pair[0].clone(), pair[1].clone()))
-            .collect();
+        notification.img = self
+            .image_cache
+            .lock()
+            .expect("image cache lock poisoned")
+            .thumbnail(&mut hints, &notification.app_icon, style.thumbnail.size);
 
-        let timeout = match expire_timeout {
-            0 => None,
-            -1 => configured_timeout(&timeouts, &notification.hints),
-            milliseconds if milliseconds > 0 => {
-                Some(std::time::Duration::from_millis(milliseconds as u64))
-            }
-            _ => None,
-        };
-
-        println!("\nNotification from {}", notification.app_name);
-        println!("{}", notification.summary);
-        println!("{}", notification.body);
-        println!("{}", notification.app_icon);
-        println!("actions: {:?}", notification.actions);
-
-        let mut notifications = self.notifications.lock().unwrap();
-        let id = if replaces_id != 0 {
-            replaces_id
-        } else if let Some(tag) = notification.stack_tag() {
-            notifications
-                .values()
-                .find(|current| {
-                    current.notification.stack_tag() == Some(tag)
-                        && same_source(&current.notification, &notification)
-                })
-                .map(|current| current.notification.id)
-                .unwrap_or_else(|| self.next_id.fetch_add(1, Ordering::Relaxed))
-        } else {
-            self.next_id.fetch_add(1, Ordering::Relaxed)
-        };
-
-        let generation = notifications
-            .get(&id)
-            .map_or(1, |current| current.generation.wrapping_add(1));
-        notification.id = id;
-        notifications.insert(
-            id,
-            StoredNotification {
-                generation,
-                notification,
-            },
-        );
-        drop(notifications);
-
-        if let Some(timeout) = timeout {
-            let notifications = Arc::clone(&self.notifications);
-            let event_proxy = self.event_proxy.clone();
-            let emitter = emitter.to_owned();
-
-            tokio::spawn(async move {
-                tokio::time::sleep(timeout).await;
-
-                let expired = {
-                    let mut notifications = notifications.lock().unwrap();
-
-                    match notifications.get(&id) {
-                        Some(current) if current.generation == generation => {
-                            notifications.remove(&id);
-                            true
-                        }
-                        _ => false,
-                    }
+        let timeout = resolve_timeout(timeout_policy, &timeouts, &notification);
+        let outcome = {
+            let mut queue = self.queue.lock().expect("queue lock poisoned");
+            if let Some(index) = queue.find_replacement(replaces_id, &notification) {
+                let id = queue.entries[index].notification.id;
+                let generation = queue.entries[index].generation.wrapping_add(1);
+                notification.id = id;
+                queue.entries[index] = QueueEntry {
+                    notification,
+                    generation,
+                    style,
+                    timeout_policy,
+                    timeout,
+                    timer_started: false,
                 };
+                EnqueueOutcome::Stored(id)
+            } else if queue.entries.len() >= MAX_LIVE_NOTIFICATIONS {
+                EnqueueOutcome::Rejected(queue.next_id())
+            } else {
+                let id = queue.next_id();
+                notification.id = id;
+                queue.entries.push_back(QueueEntry {
+                    notification,
+                    generation: 1,
+                    style,
+                    timeout_policy,
+                    timeout,
+                    timer_started: false,
+                });
+                EnqueueOutcome::Stored(id)
+            }
+        };
 
-                if expired {
-                    let _ = event_proxy.send(PopupEvent::Close(id));
-                    let _ = Self::notification_closed(&emitter, id, 1).await;
-                }
-            });
+        match outcome {
+            EnqueueOutcome::Stored(id) => {
+                self.image_cache
+                    .lock()
+                    .expect("image cache lock poisoned")
+                    .purge_dead();
+                let _ = self.event_proxy.send(PopupEvent::QueueChanged);
+                id
+            }
+            EnqueueOutcome::Rejected(id) => {
+                let _ = Self::notification_closed(&emitter, id, 4).await;
+                id
+            }
         }
-
-        let _ = self.event_proxy.send(PopupEvent::Show(id));
-
-        id
     }
 
     async fn close_notification(
@@ -189,14 +239,20 @@ impl Pigeon {
         id: u32,
         #[zbus(signal_emitter)] emitter: SignalEmitter<'_>,
     ) -> zbus::fdo::Result<()> {
-        let removed = self.notifications.lock().unwrap().remove(&id);
-
-        let _ = self.event_proxy.send(PopupEvent::Close(id));
-
+        let removed = self
+            .queue
+            .lock()
+            .expect("queue lock poisoned")
+            .remove(id, None);
         if removed.is_some() {
+            self.image_cache
+                .lock()
+                .expect("image cache lock poisoned")
+                .purge_dead();
+            crate::memory::trim_free_heap_pages();
+            let _ = self.event_proxy.send(PopupEvent::QueueChanged);
             Self::notification_closed(&emitter, id, 3).await?;
         }
-
         Ok(())
     }
 
@@ -208,24 +264,209 @@ impl Pigeon {
     ) -> zbus::Result<()>;
 }
 
+enum EnqueueOutcome {
+    Stored(u32),
+    Rejected(u32),
+}
+
+pub async fn run_lifecycle(
+    connection: Connection,
+    queue: SharedQueue,
+    image_cache: Arc<Mutex<ImageCache>>,
+    popup_events: PopupSender,
+    sender: UnboundedSender<LifecycleCommand>,
+    mut receiver: tokio::sync::mpsc::UnboundedReceiver<LifecycleCommand>,
+) {
+    while let Some(command) = receiver.recv().await {
+        match command {
+            LifecycleCommand::Visible { id, generation } => {
+                let timeout = {
+                    let mut queue = queue.lock().expect("queue lock poisoned");
+                    let Some(entry) = queue.entries.iter_mut().find(|entry| {
+                        entry.notification.id == id && entry.generation == generation
+                    }) else {
+                        continue;
+                    };
+                    if entry.timer_started {
+                        None
+                    } else {
+                        entry.timer_started = true;
+                        entry.timeout
+                    }
+                };
+                if let Some(timeout) = timeout {
+                    let sender = sender.clone();
+                    tokio::spawn(async move {
+                        tokio::time::sleep(timeout).await;
+                        let _ = sender.send(LifecycleCommand::Expire { id, generation });
+                    });
+                }
+            }
+            LifecycleCommand::Dismiss { id } => {
+                let removed = queue.lock().expect("queue lock poisoned").remove(id, None);
+                let Some(entry) = removed else {
+                    continue;
+                };
+                let action = entry.notification.actions.get("default").cloned();
+                if let Some(action) = action {
+                    let _ = connection
+                        .emit_signal(
+                            None::<&str>,
+                            "/org/freedesktop/Notifications",
+                            "org.freedesktop.Notifications",
+                            "ActionInvoked",
+                            &(id, action),
+                        )
+                        .await;
+                }
+                emit_closed(&connection, id, 2).await;
+                image_cache
+                    .lock()
+                    .expect("image cache lock poisoned")
+                    .purge_dead();
+                crate::memory::trim_free_heap_pages();
+                let _ = popup_events.send(PopupEvent::QueueChanged);
+            }
+            LifecycleCommand::Expire { id, generation } => {
+                if queue
+                    .lock()
+                    .expect("queue lock poisoned")
+                    .remove(id, Some(generation))
+                    .is_some()
+                {
+                    emit_closed(&connection, id, 1).await;
+                    image_cache
+                        .lock()
+                        .expect("image cache lock poisoned")
+                        .purge_dead();
+                    crate::memory::trim_free_heap_pages();
+                    let _ = popup_events.send(PopupEvent::QueueChanged);
+                }
+            }
+        }
+    }
+}
+
+pub fn refresh_queue_presentation(queue: &SharedQueue, config: &PigeonConfig) {
+    queue
+        .lock()
+        .expect("queue lock poisoned")
+        .refresh_presentation(config);
+}
+
+async fn emit_closed(connection: &Connection, id: u32, reason: u32) {
+    let _ = connection
+        .emit_signal(
+            None::<&str>,
+            "/org/freedesktop/Notifications",
+            "org.freedesktop.Notifications",
+            "NotificationClosed",
+            &(id, reason),
+        )
+        .await;
+}
+
+fn timeout_policy(expire_timeout: i32) -> TimeoutPolicy {
+    match expire_timeout {
+        0 => TimeoutPolicy::Never,
+        -1 => TimeoutPolicy::Configured,
+        milliseconds if milliseconds > 0 => {
+            TimeoutPolicy::Fixed(Duration::from_millis(milliseconds as u64))
+        }
+        _ => TimeoutPolicy::Never,
+    }
+}
+
+fn resolve_timeout(
+    policy: TimeoutPolicy,
+    configured: &TimeoutConfig,
+    notification: &Notification,
+) -> Option<Duration> {
+    match policy {
+        TimeoutPolicy::Never => None,
+        TimeoutPolicy::Fixed(timeout) => Some(timeout),
+        TimeoutPolicy::Configured => {
+            let milliseconds = match notification.urgency() {
+                Some(0) => configured.low_timeout,
+                Some(2) => configured.critical_timeout,
+                _ => configured.normal_timeout,
+            };
+            (milliseconds != u64::MAX).then(|| Duration::from_millis(milliseconds))
+        }
+    }
+}
+
+fn normalize_hints(hints: &HashMap<String, OwnedValue>) -> NotificationHints {
+    let mut normalized = NotificationHints::default();
+    normalized.stack_tag = hints
+        .get("x-dunst-stack-tag")
+        .and_then(string_hint)
+        .or_else(|| {
+            hints
+                .get("x-canonical-private-synchronous")
+                .and_then(string_hint)
+        });
+    for (key, value) in hints {
+        if matches!(
+            key.as_str(),
+            "image-data" | "image_data" | "icon_data" | "image-path" | "image_path"
+        ) {
+            continue;
+        }
+        match key.as_str() {
+            "urgency" => normalized.urgency = value.downcast_ref::<u8>().ok(),
+            "value" => normalized.progress = value.downcast_ref::<i32>().ok(),
+            "transient" => normalized.transient = value.downcast_ref::<bool>().ok(),
+            "resident" => normalized.resident = value.downcast_ref::<bool>().ok(),
+            "desktop-entry" => normalized.desktop_entry = string_hint(value),
+            "category" => normalized.category = string_hint(value),
+            "x-pigeond-profile" => normalized.profile = string_hint(value),
+            "x-dunst-stack-tag" | "x-canonical-private-synchronous" => {}
+            _ => {
+                if let Some(value) = string_hint(value) {
+                    normalized.insert_string(truncate(key.clone(), MAX_SHORT_TEXT_BYTES), value);
+                }
+            }
+        }
+    }
+    normalized
+}
+
+fn string_hint(value: &OwnedValue) -> Option<String> {
+    <&str>::try_from(value)
+        .ok()
+        .map(|value| truncate(value.to_owned(), MAX_SHORT_TEXT_BYTES))
+}
+
+fn normalize_actions(actions: Vec<String>) -> BTreeMap<String, String> {
+    actions
+        .chunks_exact(2)
+        .take(MAX_ACTION_PAIRS)
+        .map(|pair| {
+            (
+                truncate(pair[0].clone(), MAX_SHORT_TEXT_BYTES),
+                truncate(pair[1].clone(), MAX_SHORT_TEXT_BYTES),
+            )
+        })
+        .collect()
+}
+
+fn truncate(mut value: String, limit: usize) -> String {
+    if value.len() <= limit {
+        return value;
+    }
+    let mut end = limit.saturating_sub('…'.len_utf8());
+    while !value.is_char_boundary(end) {
+        end -= 1;
+    }
+    value.truncate(end);
+    value.push('…');
+    value
+}
+
 fn same_source(left: &Notification, right: &Notification) -> bool {
     match (left.desktop_entry(), right.desktop_entry()) {
         (Some(left), Some(right)) => left == right,
         _ => left.app_name == right.app_name,
     }
-}
-
-fn configured_timeout(
-    timeouts: &crate::config::TimeoutConfig,
-    hints: &HashMap<String, OwnedValue>,
-) -> Option<std::time::Duration> {
-    let timeout = match hints
-        .get("urgency")
-        .and_then(|urgency| urgency.downcast_ref::<u8>().ok())
-    {
-        Some(0) => timeouts.low_timeout,
-        Some(2) => timeouts.critical_timeout,
-        _ => timeouts.normal_timeout,
-    };
-    (timeout != u64::MAX).then(|| std::time::Duration::from_millis(timeout))
 }

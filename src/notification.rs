@@ -1,87 +1,85 @@
-use crate::{config::NotificationConfig, images::Image};
-use std::collections::HashMap;
-use zbus::zvariant::OwnedValue;
+use std::{collections::BTreeMap, sync::Arc};
 
-#[derive(Clone)]
+use crate::images::Image;
+
+const MAX_STRING_HINTS: usize = 64;
+
+#[derive(Clone, Default)]
+pub struct NotificationHints {
+    pub desktop_entry: Option<String>,
+    pub category: Option<String>,
+    pub urgency: Option<u8>,
+    pub progress: Option<i32>,
+    pub transient: Option<bool>,
+    pub resident: Option<bool>,
+    pub profile: Option<String>,
+    pub stack_tag: Option<String>,
+    pub strings: BTreeMap<String, String>,
+}
+
+impl NotificationHints {
+    pub fn insert_string(&mut self, key: String, value: String) {
+        if self.strings.len() < MAX_STRING_HINTS || self.strings.contains_key(&key) {
+            self.strings.insert(key, value);
+        }
+    }
+
+    pub fn hint(&self, key: &str) -> Option<&str> {
+        match key {
+            "desktop-entry" => self.desktop_entry.as_deref(),
+            "category" => self.category.as_deref(),
+            "x-pigeond-profile" => self.profile.as_deref(),
+            "x-dunst-stack-tag" | "x-canonical-private-synchronous" => self.stack_tag.as_deref(),
+            _ => self.strings.get(key).map(String::as_str),
+        }
+    }
+}
+
 pub struct Notification {
     pub id: u32,
-    pub replaces_id: u32,
     pub app_name: String,
     pub app_icon: String,
     pub summary: String,
     pub body: String,
-    pub img: Option<Image>,
-    pub actions: HashMap<String, String>,
-    pub hints: HashMap<String, OwnedValue>,
-    pub style: NotificationConfig,
+    pub img: Option<Arc<Image>>,
+    pub actions: BTreeMap<String, String>,
+    pub hints: NotificationHints,
 }
 
 impl Notification {
-    pub fn hint(&self, key: &str) -> Option<&OwnedValue> {
-        self.hints.get(key)
+    pub fn hint(&self, key: &str) -> Option<&str> {
+        self.hints.hint(key)
     }
 
     pub fn urgency(&self) -> Option<u8> {
-        self.hint("urgency")
-            .and_then(|hint| hint.downcast_ref::<u8>().ok())
+        self.hints.urgency
     }
 
     pub fn progress(&self) -> Option<i32> {
-        self.hint("value")
-            .and_then(|hint| hint.downcast_ref::<i32>().ok())
+        self.hints.progress
     }
 
     pub fn category(&self) -> Option<&str> {
-        self.hint("category")
-            .and_then(|hint| <&str>::try_from(hint).ok())
+        self.hints.category.as_deref()
     }
 
     pub fn desktop_entry(&self) -> Option<&str> {
-        self.hint("desktop-entry")
-            .and_then(|hint| <&str>::try_from(hint).ok())
+        self.hints.desktop_entry.as_deref()
     }
 
     pub fn transient(&self) -> Option<bool> {
-        self.hint("transient")
-            .and_then(|hint| hint.downcast_ref::<bool>().ok())
+        self.hints.transient
     }
 
     pub fn resident(&self) -> Option<bool> {
-        self.hint("resident")
-            .and_then(|hint| hint.downcast_ref::<bool>().ok())
-    }
-
-    pub fn sound_file(&self) -> Option<&str> {
-        self.hint("sound-file")
-            .and_then(|hint| <&str>::try_from(hint).ok())
-    }
-
-    pub fn sound_name(&self) -> Option<&str> {
-        self.hint("sound-name")
-            .and_then(|hint| <&str>::try_from(hint).ok())
-    }
-
-    pub fn supress_sound(&self) -> Option<bool> {
-        self.hint("supress-sound")
-            .and_then(|hint| hint.downcast_ref::<bool>().ok())
+        self.hints.resident
     }
 
     pub fn profile(&self) -> Option<&str> {
-        self.hint("x-pigeond-profile")
-            .and_then(|hint| <&str>::try_from(hint).ok())
+        self.hints.profile.as_deref()
     }
 
     pub fn stack_tag(&self) -> Option<&str> {
-        if let Some(tag) = self
-            .hint("x-dunst-stack-tag")
-            .and_then(|hint| <&str>::try_from(hint).ok())
-            .or_else(|| {
-                self.hint("x-canonical-private-synchronous")
-                    .and_then(|hint| <&str>::try_from(hint).ok())
-            })
-        {
-            return Some(tag);
-        }
-        None
+        self.hints.stack_tag.as_deref()
     }
 }

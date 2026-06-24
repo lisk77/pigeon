@@ -1,8 +1,7 @@
 use smithay_client_toolkit::reexports::calloop::channel::{self, Channel, Sender};
 
 pub enum PopupEvent {
-    Show(u32),
-    Close(u32),
+    QueueChanged,
     ReloadConfig,
 }
 

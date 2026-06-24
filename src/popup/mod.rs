@@ -28,7 +28,7 @@ use tokio::sync::mpsc::UnboundedSender;
 
 use crate::{
     config::{PigeonConfig, SharedConfig, notification::Anchor},
-    daemon::SharedNotifications,
+    daemon::{LifecycleCommand, SharedQueue},
 };
 
 pub struct Popup {
@@ -37,23 +37,22 @@ pub struct Popup {
     pub(in crate::popup) compositor: CompositorState,
     pub(in crate::popup) layer_shell: LayerShell,
     pub(in crate::popup) shm: Shm,
-    pub(in crate::popup) notification_ids: BTreeSet<u32>,
-    pub(in crate::popup) notification_store: SharedNotifications,
+    pub(in crate::popup) queue: SharedQueue,
     pub(in crate::popup) surfaces: BTreeMap<u32, Vec<NotificationSurface>>,
     pub(in crate::popup) retired_frames: Vec<Frame>,
-    pub(in crate::popup) fonts: FontCtx,
+    pub(in crate::popup) fonts: Option<FontCtx>,
     pub(in crate::popup) seat_state: SeatState,
     pub(in crate::popup) pointer: Option<wl_pointer::WlPointer>,
-    pub(in crate::popup) dismiss_sender: UnboundedSender<u32>,
+    pub(in crate::popup) lifecycle_sender: UnboundedSender<LifecycleCommand>,
     pub(in crate::popup) config: SharedConfig,
 }
 
 impl Popup {
     pub fn run(
         events: PopupReceiver,
-        dismiss_sender: UnboundedSender<u32>,
         config: SharedConfig,
-        notification_store: SharedNotifications,
+        queue: SharedQueue,
+        lifecycle_sender: UnboundedSender<LifecycleCommand>,
     ) -> Result<(), Box<dyn std::error::Error>> {
         let connection = Connection::connect_to_env()?;
         let (globals, event_queue) = registry_queue_init(&connection)?;
@@ -73,14 +72,13 @@ impl Popup {
             compositor,
             layer_shell,
             shm,
-            notification_ids: BTreeSet::new(),
-            notification_store,
+            queue,
             surfaces: BTreeMap::new(),
             retired_frames: Vec::new(),
-            fonts: FontCtx::new(),
+            fonts: None,
             seat_state: SeatState::new(&globals, &qh),
             pointer: None,
-            dismiss_sender,
+            lifecycle_sender,
             config,
         };
 
@@ -99,53 +97,36 @@ impl Popup {
 
     fn handle_command(&mut self, qh: &QueueHandle<Self>, command: PopupEvent) {
         match command {
-            PopupEvent::Show(id) => self.show(qh, id),
-            PopupEvent::Close(id) => self.close(qh, id),
+            PopupEvent::QueueChanged => {
+                let config_handle = Arc::clone(&self.config);
+                let config = config_handle.read().expect("config lock poisoned");
+                self.reflow(qh, &config, false);
+            }
             PopupEvent::ReloadConfig => self.reload_config(qh),
         }
     }
 
-    fn show(&mut self, qh: &QueueHandle<Self>, id: u32) {
-        if !self
-            .notification_store
-            .lock()
-            .expect("notification store lock poisoned")
-            .contains_key(&id)
-        {
-            return;
-        }
-        let config_handle = Arc::clone(&self.config);
-        let config = config_handle.read().expect("config lock poisoned");
-        self.notification_ids.insert(id);
-        self.reflow(qh, &config);
-    }
-
-    fn reflow(&mut self, qh: &QueueHandle<Self>, config: &PigeonConfig) {
+    fn reflow(&mut self, qh: &QueueHandle<Self>, config: &PigeonConfig, force_redraw: bool) {
         let width = config.notification.max_width;
-        let notification_store = Arc::clone(&self.notification_store);
-        let notifications = notification_store
-            .lock()
-            .expect("notification store lock poisoned");
-        self.notification_ids
-            .retain(|id| notifications.contains_key(id));
-        let measurements: Vec<_> = self
-            .notification_ids
+        let queue = Arc::clone(&self.queue);
+        let queue = queue.lock().expect("queue lock poisoned");
+        let measurements: Vec<_> = queue
+            .entries
             .iter()
-            .filter_map(|&id| {
-                notifications.get(&id).map(|stored| {
-                    (
-                        id,
-                        stored.generation,
-                        render::card::measure_card_height(
-                            &stored.notification,
-                            width,
-                            &mut self.fonts,
-                        ),
-                    )
-                })
+            .map(|entry| {
+                (
+                    entry.notification.id,
+                    entry.generation,
+                    render::card::measure_card_height(
+                        &entry.notification,
+                        &entry.style,
+                        width,
+                        self.fonts.get_or_insert_with(FontCtx::new),
+                    ),
+                )
             })
             .collect();
-        drop(notifications);
+        drop(queue);
         let outputs: Vec<wl_output::WlOutput> = self.output_state.outputs().collect();
         let position = &config.notification.position;
         let Some(layout_source) = self.layout_source(&outputs, position.anchor) else {
@@ -209,17 +190,15 @@ impl Popup {
         });
 
         let mut retired_frames = Vec::new();
-        let notification_store = Arc::clone(&self.notification_store);
-        let notifications = notification_store
-            .lock()
-            .expect("notification store lock poisoned");
+        let queue = Arc::clone(&self.queue);
+        let queue = queue.lock().expect("queue lock poisoned");
         for output in outputs {
             for (id, generation, visible_width, visible_height, full_width, full_height) in &layout
             {
-                let Some(notification) = notifications
-                    .get(id)
-                    .filter(|notification| notification.generation == *generation)
-                    .map(|notification| &notification.notification)
+                let Some(entry) = queue
+                    .entries
+                    .iter()
+                    .find(|entry| entry.notification.id == *id && entry.generation == *generation)
                 else {
                     continue;
                 };
@@ -228,6 +207,7 @@ impl Popup {
                 {
                     let notification_changed = surface.generation != *generation;
                     surface.generation = *generation;
+                    surface.update_position(&config.notification.position);
                     surface.full_width = *full_width;
                     surface.full_height = *full_height;
                     if surface.width != *visible_width || surface.height != *visible_height {
@@ -235,17 +215,25 @@ impl Popup {
                         surface.height = *visible_height;
                         surface.layer.set_size(*visible_width, *visible_height);
                         if surface.configured {
-                            if let Some(frame) =
-                                surface.draw(&self.shm, &mut self.fonts, notification)
-                            {
+                            if let Some(frame) = surface.draw(
+                                &self.shm,
+                                self.fonts.get_or_insert_with(FontCtx::new),
+                                &entry.notification,
+                                &entry.style,
+                            ) {
                                 retired_frames.push(frame);
                             }
                         } else {
                             surface.layer.commit();
                         }
-                    } else if notification_changed
+                    } else if (notification_changed || force_redraw)
                         && surface.configured
-                        && let Some(frame) = surface.draw(&self.shm, &mut self.fonts, notification)
+                        && let Some(frame) = surface.draw(
+                            &self.shm,
+                            self.fonts.get_or_insert_with(FontCtx::new),
+                            &entry.notification,
+                            &entry.style,
+                        )
                     {
                         retired_frames.push(frame);
                     }
@@ -265,10 +253,17 @@ impl Popup {
                 }
             }
         }
+        drop(queue);
 
         self.retired_frames.extend(retired_frames);
 
-        surface::restack(&self.surfaces, config);
+        let ordered_ids = layout.iter().map(|(id, ..)| *id).collect::<Vec<_>>();
+        surface::restack(&self.surfaces, &ordered_ids, config);
+        for (id, generation, ..) in layout {
+            let _ = self
+                .lifecycle_sender
+                .send(LifecycleCommand::Visible { id, generation });
+        }
     }
 
     fn layout_source(
@@ -308,18 +303,6 @@ impl Popup {
         Some((u32::try_from(width).ok()?, u32::try_from(height).ok()?))
     }
 
-    pub(in crate::popup) fn close(&mut self, qh: &QueueHandle<Self>, id: u32) {
-        self.notification_ids.remove(&id);
-        if let Some(surfaces) = self.surfaces.remove(&id) {
-            self.retire_surfaces(surfaces);
-        }
-        {
-            let config_handle = Arc::clone(&self.config);
-            let config = config_handle.read().expect("config lock poisoned");
-            self.reflow(qh, &config);
-        }
-    }
-
     fn reload_config(&mut self, qh: &QueueHandle<Self>) {
         let config_handle = Arc::clone(&self.config);
         let config = config_handle.read().expect("config lock poisoned");
@@ -329,11 +312,23 @@ impl Popup {
             }
         }
 
-        self.reflow(qh, &config);
+        self.reflow(qh, &config, true);
     }
 
     pub(in crate::popup) fn collect_released_frames(&mut self) {
         self.retired_frames.retain(|frame| !frame.released());
+        if self.retired_frames.is_empty()
+            && self.surfaces.is_empty()
+            && self
+                .queue
+                .lock()
+                .expect("queue lock poisoned")
+                .entries
+                .is_empty()
+        {
+            self.fonts = None;
+            crate::memory::trim_free_heap_pages();
+        }
     }
 
     pub(in crate::popup) fn retire_surface(&mut self, mut surface: NotificationSurface) {

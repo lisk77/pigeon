@@ -79,14 +79,14 @@ impl LayerShellHandler for Popup {
             self.retire_surface(removed);
             let config_handle = std::sync::Arc::clone(&self.config);
             let config = config_handle.read().expect("config lock poisoned");
-            self.reflow(qh, &config);
+            self.reflow(qh, &config, false);
         }
     }
 
     fn configure(
         &mut self,
         _: &Connection,
-        qh: &QueueHandle<Self>,
+        _: &QueueHandle<Self>,
         layer: &LayerSurface,
         configure: LayerSurfaceConfigure,
         _: u32,
@@ -98,17 +98,21 @@ impl LayerShellHandler for Popup {
                 .map(|output_index| (*id, output_index))
         }) {
             let config = self.config.read().expect("config lock poisoned");
-            let notification_store = std::sync::Arc::clone(&self.notification_store);
-            let notifications = notification_store
-                .lock()
-                .expect("notification store lock poisoned");
-            let Some(notification) = notifications.get(&id) else {
-                drop(notifications);
-                drop(config);
-                self.close(qh, id);
+            let queue = std::sync::Arc::clone(&self.queue);
+            let queue = queue.lock().expect("queue lock poisoned");
+            let Some(entry) = queue
+                .entries
+                .iter()
+                .find(|entry| entry.notification.id == id)
+            else {
                 return;
             };
-            let generation = notification.generation;
+            let generation = entry.generation;
+            let ordered_ids = queue
+                .entries
+                .iter()
+                .map(|entry| entry.notification.id)
+                .collect::<Vec<_>>();
             let retired_frame = {
                 let surface = &mut self.surfaces.get_mut(&id).unwrap()[output_index];
                 if configure.new_size.0 != 0 {
@@ -119,7 +123,13 @@ impl LayerShellHandler for Popup {
                 }
                 surface.configured = true;
                 if surface.generation == generation {
-                    surface.draw(&self.shm, &mut self.fonts, &notification.notification)
+                    surface.draw(
+                        &self.shm,
+                        self.fonts
+                            .get_or_insert_with(super::render::text::FontCtx::new),
+                        &entry.notification,
+                        &entry.style,
+                    )
                 } else {
                     None
                 }
@@ -127,7 +137,7 @@ impl LayerShellHandler for Popup {
             if let Some(frame) = retired_frame {
                 self.retired_frames.push(frame);
             }
-            surface::restack(&self.surfaces, &config);
+            surface::restack(&self.surfaces, &ordered_ids, &config);
         }
     }
 }
@@ -146,7 +156,7 @@ impl OutputHandler for Popup {
     fn new_output(&mut self, _: &Connection, qh: &QueueHandle<Self>, _: wl_output::WlOutput) {
         let config_handle = std::sync::Arc::clone(&self.config);
         let config = config_handle.read().expect("config lock poisoned");
-        self.reflow(qh, &config);
+        self.reflow(qh, &config, false);
     }
 
     fn update_output(&mut self, _: &Connection, _: &QueueHandle<Self>, _: wl_output::WlOutput) {}
@@ -160,7 +170,7 @@ impl OutputHandler for Popup {
         let config_handle = std::sync::Arc::clone(&self.config);
         let config = config_handle.read().expect("config lock poisoned");
         self.remove_output(&output);
-        self.reflow(qh, &config);
+        self.reflow(qh, &config, false);
     }
 }
 
@@ -217,7 +227,9 @@ impl PointerHandler for Popup {
                     .find(|surface| surface.layer.wl_surface() == &event.surface)
                     .map(|surface| (*id, surface))
             }) {
-                let _ = self.dismiss_sender.send(id);
+                let _ = self
+                    .lifecycle_sender
+                    .send(super::LifecycleCommand::Dismiss { id });
             }
         }
     }

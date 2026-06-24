@@ -16,9 +16,9 @@ pub fn render_card(
     full_width: u32,
     full_height: u32,
     notification: &Notification,
+    notification_config: &NotificationConfig,
     fonts: &mut FontCtx,
 ) {
-    let notification_config = &notification.style;
     let progress = progress_rect(
         notification,
         full_width,
@@ -328,8 +328,12 @@ fn rounded_rect_contains(x: u32, y: u32, width: u32, height: u32, corner_radius:
     center_x.abs_diff(pixel_x).pow(2) + center_y.abs_diff(pixel_y).pow(2) <= radius.pow(2)
 }
 
-pub fn measure_card_height(notification: &Notification, width: u32, fonts: &mut FontCtx) -> u32 {
-    let notification_config = &notification.style;
+pub fn measure_card_height(
+    notification: &Notification,
+    notification_config: &NotificationConfig,
+    width: u32,
+    fonts: &mut FontCtx,
+) -> u32 {
     let content_inset = notification_config
         .outer_padding
         .saturating_add(notification_config.border.width);
