@@ -5,9 +5,7 @@ A notification daemon.
 ## Installation
 
 ```
-git clone https://github.com/lisk77/pigeond
-cd pigeond
-cargo install --path .
+cargo install --git https://github.com/lisk77/pigeon
 ```
 
 ## Usage

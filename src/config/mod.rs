@@ -91,7 +91,7 @@ impl PigeonConfig {
     }
 
     pub fn default_path() -> PathBuf {
-        if let Some(path) = env::var_os("PIGEOND_CONFIG") {
+        if let Some(path) = env::var_os("PIGEON_CONFIG") {
             return path.into();
         }
 
@@ -100,7 +100,7 @@ impl PigeonConfig {
             .or_else(|| env::var_os("HOME").map(|home| PathBuf::from(home).join(".config")))
             .unwrap_or_else(|| PathBuf::from("."));
 
-        config_home.join("pigeond/config.toml")
+        config_home.join("pigeon/config.toml")
     }
 
     pub fn path(&self) -> &Path {

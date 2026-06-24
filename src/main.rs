@@ -1,5 +1,5 @@
 use clap::Parser;
-use pigeond::cli::{
+use pigeon::cli::{
     Cli, Command, ConfigSubcommand, ProfileSubcommand, config::*, profile::*, serve::serve,
 };
 
