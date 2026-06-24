@@ -1,6 +1,10 @@
 # pigeon
 
-A notification daemon.
+A notification daemon that aims to be a memory efficient and highly customizable.
+
+<p align="center">
+  <img src="res/pigeon-preview.png" alt="pigeon" width="500">
+</p>
 
 ## Installation
 
