@@ -28,7 +28,7 @@ impl NotificationHints {
         match key {
             "desktop-entry" => self.desktop_entry.as_deref(),
             "category" => self.category.as_deref(),
-            "x-pigeond-profile" => self.profile.as_deref(),
+            "x-pigeon-profile" => self.profile.as_deref(),
             "x-dunst-stack-tag" | "x-canonical-private-synchronous" => self.stack_tag.as_deref(),
             _ => self.strings.get(key).map(String::as_str),
         }

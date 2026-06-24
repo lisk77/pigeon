@@ -2,6 +2,10 @@
 name = "pigeond"
 version = "0.1.0"
 edition = "2024"
+description = "a notification daemon"
+repository = "https://github.com/lisk77/pigeond"
+license = "GPL-3.0"
+categories = ["command-line-utilities"]
 
 [dependencies]
 image = { version = "0.25", default-features = false, features = ["bmp", "gif", "ico", "jpeg", "png", "webp"] }
@@ -15,3 +19,12 @@ notify = "8.2"
 clap = { version = "4.6.1", features = ["derive"] }
 toml_edit = "0.25.12"
 toml = "0.9"
+
+[[bin]]
+name = "pigeon"
+path = "src/main.rs"
+
+[profile.release]
+strip = true
+lto = true
+codegen-units = 1

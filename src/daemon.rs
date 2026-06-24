@@ -420,7 +420,7 @@ fn normalize_hints(hints: &HashMap<String, OwnedValue>) -> NotificationHints {
             "resident" => normalized.resident = value.downcast_ref::<bool>().ok(),
             "desktop-entry" => normalized.desktop_entry = string_hint(value),
             "category" => normalized.category = string_hint(value),
-            "x-pigeond-profile" => normalized.profile = string_hint(value),
+            "x-pigeon-profile" => normalized.profile = string_hint(value),
             "x-dunst-stack-tag" | "x-canonical-private-synchronous" => {}
             _ => {
                 if let Some(value) = string_hint(value) {

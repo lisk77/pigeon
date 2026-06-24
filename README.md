@@ -15,18 +15,18 @@ cargo install --path .
 To simply start the daemon use
 
 ```
-pigeond serve
+pigeon serve
 ```
 
 To switch a profile use 
 
 ```
-pigeond profile set <PROFILE>
+pigeon profile set <PROFILE>
 ```
 
 ## Configuration
 
-Pigeon uses a profile system where you can define style overrides in general or based on rules. The base look of pigeon can be found with `pigeond config default`. 
+Pigeon uses a profile system where you can define style overrides in general or based on rules. The base look of pigeon can be found with `pigeon config default`. 
 
 ```toml
 [profiles.study]
@@ -52,14 +52,14 @@ color = "#ff0000"
 
 will be associated with the rule above. If you want a general style override for the specific profile, you need to add that below the profile definition. Rules are always checked in order, meaning the first rule that matches will be applied.
 
-To now actually apply this profile we can either use `pigeond profile set study` or define it in the profile table.
+To now actually apply this profile we can either use `pigeon profile set study` or define it in the profile table.
 
 ```toml
 [profile]
 active = "study"
 ```
 
-The daemon will also recognize the `x-pigeond-profile` hint and set the profile for this notification to the specified profile (as long as it exists and defined properly). For this you need to allow the profile override as well.
+The daemon will also recognize the `x-pigeon-profile` hint and set the profile for this notification to the specified profile (as long as it exists and defined properly). For this you need to allow the profile override as well.
 
 ```toml
 [profile]
