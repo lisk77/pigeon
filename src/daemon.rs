@@ -97,7 +97,7 @@ impl NotificationQueue {
             entry.style = style;
             if !entry.timer_started {
                 entry.timeout =
-                    resolve_timeout(entry.timeout_policy, &timeouts, &entry.notification);
+                    resolve(entry.timeout_policy, &timeouts, &entry.notification);
             }
         }
     }
@@ -154,7 +154,7 @@ impl Pigeon {
         body: String,
         actions: Vec<String>,
         mut hints: HashMap<String, OwnedValue>,
-        expire_timeout: i32,
+        expire: i32,
         #[zbus(signal_emitter)] emitter: SignalEmitter<'_>,
     ) -> u32 {
         let mut notification = Notification {
@@ -172,7 +172,7 @@ impl Pigeon {
             let config = self.config.read().expect("config lock poisoned");
             config.presentation_for(&notification)
         };
-        let timeout_policy = timeout_policy(expire_timeout);
+        let timeout_policy = timeout_policy(expire);
 
         if action == RuleAction::Block {
             let id = self.queue.lock().expect("queue lock poisoned").next_id();
@@ -185,7 +185,7 @@ impl Pigeon {
             .expect("image cache lock poisoned")
             .thumbnail(&mut hints, &notification.app_icon, style.thumbnail.size);
 
-        let timeout = resolve_timeout(timeout_policy, &timeouts, &notification);
+        let timeout = resolve(timeout_policy, &timeouts, &notification);
         let outcome = {
             let mut queue = self.queue.lock().expect("queue lock poisoned");
             if let Some(index) = queue.find_replacement(replaces_id, &notification) {
@@ -366,8 +366,8 @@ async fn emit_closed(connection: &Connection, id: u32, reason: u32) {
         .await;
 }
 
-fn timeout_policy(expire_timeout: i32) -> TimeoutPolicy {
-    match expire_timeout {
+fn timeout_policy(expire: i32) -> TimeoutPolicy {
+    match expire {
         0 => TimeoutPolicy::Never,
         -1 => TimeoutPolicy::Configured,
         milliseconds if milliseconds > 0 => {
@@ -377,7 +377,7 @@ fn timeout_policy(expire_timeout: i32) -> TimeoutPolicy {
     }
 }
 
-fn resolve_timeout(
+fn resolve(
     policy: TimeoutPolicy,
     configured: &TimeoutConfig,
     notification: &Notification,
@@ -387,9 +387,9 @@ fn resolve_timeout(
         TimeoutPolicy::Fixed(timeout) => Some(timeout),
         TimeoutPolicy::Configured => {
             let milliseconds = match notification.urgency() {
-                Some(0) => configured.low_timeout,
-                Some(2) => configured.critical_timeout,
-                _ => configured.normal_timeout,
+                Some(0) => configured.low,
+                Some(2) => configured.critical,
+                _ => configured.normal,
             };
             (milliseconds != u64::MAX).then(|| Duration::from_millis(milliseconds))
         }

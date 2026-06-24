@@ -3,16 +3,16 @@ use serde::{Deserialize, Deserializer, Serialize, Serializer};
 #[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(default)]
 pub struct TimeoutConfig {
-    pub low_timeout: u64,
-    pub normal_timeout: u64,
+    pub low: u64,
+    pub normal: u64,
     #[serde(
-        deserialize_with = "deserialize_timeout",
-        serialize_with = "serialize_timeout"
+        deserialize_with = "deserialize",
+        serialize_with = "serialize"
     )]
-    pub critical_timeout: u64,
+    pub critical: u64,
 }
 
-fn deserialize_timeout<'de, D>(deserializer: D) -> Result<u64, D::Error>
+fn deserialize<'de, D>(deserializer: D) -> Result<u64, D::Error>
 where
     D: Deserializer<'de>,
 {
@@ -32,7 +32,7 @@ where
     }
 }
 
-fn serialize_timeout<S>(timeout: &u64, serializer: S) -> Result<S::Ok, S::Error>
+fn serialize<S>(timeout: &u64, serializer: S) -> Result<S::Ok, S::Error>
 where
     S: Serializer,
 {
@@ -46,9 +46,9 @@ where
 impl Default for TimeoutConfig {
     fn default() -> Self {
         Self {
-            low_timeout: 3000,
-            normal_timeout: 5000,
-            critical_timeout: u64::MAX,
+            low: 3000,
+            normal: 5000,
+            critical: u64::MAX,
         }
     }
 }
@@ -56,52 +56,52 @@ impl Default for TimeoutConfig {
 #[derive(Debug, Default, Deserialize, Serialize)]
 #[serde(default)]
 pub struct TimeoutOverride {
-    pub low_timeout: Option<u64>,
-    pub normal_timeout: Option<u64>,
+    pub low: Option<u64>,
+    pub normal: Option<u64>,
     #[serde(
         default,
         skip_serializing_if = "Option::is_none",
-        deserialize_with = "deserialize_optional_timeout",
-        serialize_with = "serialize_optional_timeout"
+        deserialize_with = "deserialize_optional",
+        serialize_with = "serialize_optional"
     )]
-    pub critical_timeout: Option<u64>,
+    pub critical: Option<u64>,
 }
 
 impl TimeoutOverride {
     pub(crate) fn is_empty(&self) -> bool {
-        self.low_timeout.is_none()
-            && self.normal_timeout.is_none()
-            && self.critical_timeout.is_none()
+        self.low.is_none()
+            && self.normal.is_none()
+            && self.critical.is_none()
     }
 
     pub fn apply_to(&self, base: &TimeoutConfig) -> TimeoutConfig {
         let mut resolved = base.clone();
-        if let Some(value) = self.low_timeout {
-            resolved.low_timeout = value;
+        if let Some(value) = self.low {
+            resolved.low = value;
         }
-        if let Some(value) = self.normal_timeout {
-            resolved.normal_timeout = value;
+        if let Some(value) = self.normal {
+            resolved.normal = value;
         }
-        if let Some(value) = self.critical_timeout {
-            resolved.critical_timeout = value;
+        if let Some(value) = self.critical {
+            resolved.critical = value;
         }
         resolved
     }
 }
 
-fn deserialize_optional_timeout<'de, D>(deserializer: D) -> Result<Option<u64>, D::Error>
+fn deserialize_optional<'de, D>(deserializer: D) -> Result<Option<u64>, D::Error>
 where
     D: Deserializer<'de>,
 {
-    deserialize_timeout(deserializer).map(Some)
+    deserialize(deserializer).map(Some)
 }
 
-fn serialize_optional_timeout<S>(timeout: &Option<u64>, serializer: S) -> Result<S::Ok, S::Error>
+fn serialize_optional<S>(timeout: &Option<u64>, serializer: S) -> Result<S::Ok, S::Error>
 where
     S: Serializer,
 {
     match timeout {
-        Some(timeout) => serialize_timeout(timeout, serializer),
+        Some(timeout) => serialize(timeout, serializer),
         None => serializer.serialize_none(),
     }
 }

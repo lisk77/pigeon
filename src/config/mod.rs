@@ -134,15 +134,15 @@ impl PigeonConfig {
     ) -> Option<(RuleAction, NotificationConfig, TimeoutConfig)> {
         let default_profile = self.profile("default")?;
         let default_style = default_profile.notification.apply_to(&self.notification);
-        let default_timeouts = default_profile.timeouts.apply_to(&self.timeouts);
+        let defaults = default_profile.timeouts.apply_to(&self.timeouts);
         let profile = self.profile(name)?;
 
-        let (profile_style, profile_timeouts) = if name == "default" {
-            (default_style, default_timeouts)
+        let (profile_style, profiles) = if name == "default" {
+            (default_style, defaults)
         } else {
             (
                 profile.notification.apply_to(&default_style),
-                profile.timeouts.apply_to(&default_timeouts),
+                profile.timeouts.apply_to(&defaults),
             )
         };
 
@@ -150,9 +150,9 @@ impl PigeonConfig {
             Some(rule) => Some((
                 rule.action.unwrap_or(profile.default_action),
                 rule.notification.apply_to(&profile_style),
-                profile_timeouts,
+                profiles,
             )),
-            None => Some((profile.default_action, profile_style, profile_timeouts)),
+            None => Some((profile.default_action, profile_style, profiles)),
         }
     }
 
