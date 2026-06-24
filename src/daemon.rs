@@ -96,8 +96,7 @@ impl NotificationQueue {
             let (_, style, timeouts) = config.presentation_for(&entry.notification);
             entry.style = style;
             if !entry.timer_started {
-                entry.timeout =
-                    resolve(entry.timeout_policy, &timeouts, &entry.notification);
+                entry.timeout = resolve(entry.timeout_policy, &timeouts, &entry.notification);
             }
         }
     }

@@ -5,10 +5,7 @@ use serde::{Deserialize, Deserializer, Serialize, Serializer};
 pub struct TimeoutConfig {
     pub low: u64,
     pub normal: u64,
-    #[serde(
-        deserialize_with = "deserialize",
-        serialize_with = "serialize"
-    )]
+    #[serde(deserialize_with = "deserialize", serialize_with = "serialize")]
     pub critical: u64,
 }
 
@@ -69,9 +66,7 @@ pub struct TimeoutOverride {
 
 impl TimeoutOverride {
     pub(crate) fn is_empty(&self) -> bool {
-        self.low.is_none()
-            && self.normal.is_none()
-            && self.critical.is_none()
+        self.low.is_none() && self.normal.is_none() && self.critical.is_none()
     }
 
     pub fn apply_to(&self, base: &TimeoutConfig) -> TimeoutConfig {
