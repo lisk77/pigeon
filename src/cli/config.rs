@@ -30,9 +30,9 @@ pub fn config_set_path(path: PathBuf) -> Result<(), Box<dyn std::error::Error>> 
     }
 
     notification::emit(
-            "Pigeon",
-            &format!("Config path updated: {}", path.display()),
-        );
+        "Pigeon",
+        &format!("Config path updated: {}", path.display()),
+    );
 
     Ok(())
 }

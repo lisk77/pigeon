@@ -1,4 +1,5 @@
 use crate::{
+    cli::notification,
     config::{PigeonConfig, SharedConfig},
     daemon::{LifecycleCommand, Pigeon, SharedQueue, refresh_queue_presentation, run_lifecycle},
     popup::{self, Popup, PopupEvent},
@@ -142,6 +143,7 @@ fn watch_config(
                             drop(config);
                             let _ = reload_sender.send(PopupEvent::ReloadConfig);
                             tracing::info!(path = %path.display(), "config reloaded");
+                            notification::emit("Pigeon", "config reloaded");
                         }
                         Err(error) => {
                             tracing::warn!(
