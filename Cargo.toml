@@ -1,6 +1,6 @@
 [package]
 name = "pigeon"
-version = "0.1.1"
+version = "0.2.0"
 edition = "2024"
 description = "a notification daemon"
 repository = "https://github.com/lisk77/pigeon"
