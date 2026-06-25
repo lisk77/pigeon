@@ -4,8 +4,17 @@ use crate::{
     popup::{self, Popup, PopupEvent},
 };
 use notify::{Event, EventKind, RecommendedWatcher, RecursiveMode, Watcher};
-use std::{path::Path, sync::Arc, time::Duration};
+use std::{
+    collections::BTreeSet,
+    path::{Path, PathBuf},
+    sync::Arc,
+    time::Duration,
+};
 use zbus::connection::Builder;
+
+struct ConfigWatcher {
+    _thread: std::thread::JoinHandle<()>,
+}
 
 pub fn serve() -> Result<(), Box<dyn std::error::Error>> {
     let config: SharedConfig = Arc::new(std::sync::RwLock::new(PigeonConfig::load_startup()));
@@ -53,54 +62,130 @@ fn watch_config(
     config: SharedConfig,
     reload_sender: popup::PopupSender,
     queue: SharedQueue,
-) -> Result<RecommendedWatcher, Box<dyn std::error::Error>> {
-    let config_path = PigeonConfig::default_path();
-    let watched_path = if config_path.is_absolute() {
-        config_path
-    } else {
-        std::env::current_dir()?.join(config_path)
-    };
-    let config_dir = watched_path
-        .parent()
-        .unwrap_or(Path::new("."))
-        .to_path_buf();
-    std::fs::create_dir_all(&config_dir)?;
+) -> Result<ConfigWatcher, Box<dyn std::error::Error>> {
+    let (ready_tx, ready_rx) = std::sync::mpsc::channel();
+    let thread = std::thread::spawn(move || {
+        let (event_tx, event_rx) = std::sync::mpsc::channel();
+        let mut watcher: RecommendedWatcher = match notify::recommended_watcher(move |event| {
+            let _ = event_tx.send(event);
+        }) {
+            Ok(watcher) => watcher,
+            Err(error) => {
+                let _ = ready_tx.send(Err(error.to_string()));
+                return;
+            }
+        };
 
-    let (reload_tx, reload_rx) = std::sync::mpsc::channel();
-    let reload_path = watched_path.clone();
-    std::thread::spawn(move || {
-        while reload_rx.recv().is_ok() {
-            while reload_rx.recv_timeout(Duration::from_millis(250)).is_ok() {}
+        let mut watched_dirs = BTreeSet::new();
+        let mut watched_path = absolute_path(PigeonConfig::startup_path());
+        if let Err(error) = sync_config_watches(&mut watcher, &mut watched_dirs, &watched_path) {
+            let _ = ready_tx.send(Err(error.to_string()));
+            return;
+        }
+        let _ = ready_tx.send(Ok(()));
 
-            match PigeonConfig::load(&reload_path) {
-                Ok(new_config) => {
-                    let mut config = config.write().expect("config lock poisoned");
-                    *config = new_config;
-                    refresh_queue_presentation(&queue, &config);
-                    drop(config);
-                    let _ = reload_sender.send(PopupEvent::ReloadConfig);
-                    eprintln!("config reloaded");
+        while let Ok(event) = event_rx.recv() {
+            match event {
+                Ok(event) if is_config_change(&event, &watched_path) => {
+                    while event_rx.recv_timeout(Duration::from_millis(250)).is_ok() {}
+
+                    let reload_path = absolute_path(PigeonConfig::startup_path());
+                    match PigeonConfig::load(&reload_path) {
+                        Ok(new_config) => {
+                            watched_path = reload_path;
+                            if let Err(error) =
+                                sync_config_watches(&mut watcher, &mut watched_dirs, &watched_path)
+                            {
+                                eprintln!("config watcher update failed: {error}");
+                            }
+
+                            let mut config = config.write().expect("config lock poisoned");
+                            *config = new_config;
+                            refresh_queue_presentation(&queue, &config);
+                            drop(config);
+                            let _ = reload_sender.send(PopupEvent::ReloadConfig);
+                            eprintln!("config reloaded");
+                        }
+                        Err(error) => {
+                            eprintln!("config reload failed; keeping current config: {error}")
+                        }
+                    }
                 }
-                Err(error) => eprintln!("config reload failed; keeping current config: {error}"),
+                Ok(_) => {}
+                Err(error) => eprintln!("config watcher error: {error}"),
             }
         }
     });
 
-    let mut watcher = notify::recommended_watcher(move |event| match event {
-        Ok(event) if is_config_change(&event, &watched_path) => {
-            let _ = reload_tx.send(());
-        }
-        Ok(_) => {}
-        Err(error) => eprintln!("config watcher error: {error}"),
-    })?;
-    watcher.watch(&config_dir, RecursiveMode::NonRecursive)?;
-
-    Ok(watcher)
+    match ready_rx.recv() {
+        Ok(Ok(())) => Ok(ConfigWatcher { _thread: thread }),
+        Ok(Err(error)) => Err(error.into()),
+        Err(error) => Err(error.into()),
+    }
 }
 
 fn is_config_change(event: &Event, config_path: &Path) -> bool {
-    matches!(
+    if !matches!(
         event.kind,
         EventKind::Create(_) | EventKind::Modify(_) | EventKind::Remove(_)
-    ) && event.paths.iter().any(|path| path == config_path)
+    ) {
+        return false;
+    }
+
+    let pointer_path = absolute_path(PigeonConfig::path_pointer_file());
+    let pointer_parent = pointer_path.parent();
+    let config_parent = config_path.parent();
+
+    event.paths.iter().any(|path| {
+        path == config_path
+            || path == &pointer_path
+            || pointer_parent.is_some_and(|parent| path == parent || parent.starts_with(path))
+            || config_parent.is_some_and(|parent| path == parent || parent.starts_with(path))
+    })
+}
+
+fn sync_config_watches(
+    watcher: &mut RecommendedWatcher,
+    watched_dirs: &mut BTreeSet<PathBuf>,
+    config_path: &Path,
+) -> notify::Result<()> {
+    let desired_dirs = [
+        watchable_parent(config_path),
+        watchable_parent(&absolute_path(PigeonConfig::path_pointer_file())),
+    ]
+    .into_iter()
+    .collect::<BTreeSet<_>>();
+
+    for dir in watched_dirs.difference(&desired_dirs) {
+        watcher.unwatch(dir)?;
+    }
+    for dir in desired_dirs.difference(watched_dirs) {
+        watcher.watch(dir, RecursiveMode::NonRecursive)?;
+    }
+
+    *watched_dirs = desired_dirs;
+    Ok(())
+}
+
+fn watchable_parent(path: &Path) -> PathBuf {
+    let parent = path.parent().unwrap_or(Path::new("."));
+    if parent.is_dir() {
+        return parent.to_path_buf();
+    }
+
+    parent
+        .ancestors()
+        .find(|ancestor| ancestor.is_dir())
+        .unwrap_or(Path::new("."))
+        .to_path_buf()
+}
+
+fn absolute_path(path: PathBuf) -> PathBuf {
+    if path.is_absolute() {
+        path
+    } else {
+        std::env::current_dir()
+            .unwrap_or_else(|_| PathBuf::from("."))
+            .join(path)
+    }
 }

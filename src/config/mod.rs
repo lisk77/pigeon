@@ -87,20 +87,40 @@ impl PigeonConfig {
     }
 
     pub fn load_startup() -> Self {
-        Self::load_or_default(Self::default_path())
+        Self::load_or_default(Self::startup_path())
     }
 
-    pub fn default_path() -> PathBuf {
+    pub fn startup_path() -> PathBuf {
         if let Some(path) = env::var_os("PIGEON_CONFIG") {
             return path.into();
         }
 
+        if let Ok(path) = std::fs::read_to_string(Self::path_pointer_file()) {
+            let path = path.trim();
+            if !path.is_empty() {
+                return PathBuf::from(path);
+            }
+        }
+
+        Self::default_path()
+    }
+
+    pub fn default_path() -> PathBuf {
         let config_home = env::var_os("XDG_CONFIG_HOME")
             .map(PathBuf::from)
             .or_else(|| env::var_os("HOME").map(|home| PathBuf::from(home).join(".config")))
             .unwrap_or_else(|| PathBuf::from("."));
 
         config_home.join("pigeon/config.toml")
+    }
+
+    pub fn path_pointer_file() -> PathBuf {
+        let state_home = env::var_os("XDG_STATE_HOME")
+            .map(PathBuf::from)
+            .or_else(|| env::var_os("HOME").map(|home| PathBuf::from(home).join(".local/state")))
+            .unwrap_or_else(|| PathBuf::from("."));
+
+        state_home.join("pigeon/config-path")
     }
 
     pub fn path(&self) -> &Path {
