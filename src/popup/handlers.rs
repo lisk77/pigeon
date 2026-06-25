@@ -153,7 +153,18 @@ impl OutputHandler for Popup {
         &mut self.output_state
     }
 
-    fn new_output(&mut self, _: &Connection, qh: &QueueHandle<Self>, _: wl_output::WlOutput) {
+    fn new_output(&mut self, _: &Connection, qh: &QueueHandle<Self>, output: wl_output::WlOutput) {
+        if let Some(info) = self.output_state.info(&output) {
+            tracing::info!(
+                name = ?info.name,
+                logical_size = ?info.logical_size,
+                scale = info.scale_factor,
+                "Wayland output added"
+            );
+        } else {
+            tracing::info!("Wayland output added");
+        }
+
         let config_handle = std::sync::Arc::clone(&self.config);
         let config = config_handle.read().expect("config lock poisoned");
         self.reflow(qh, &config, false);
@@ -167,6 +178,7 @@ impl OutputHandler for Popup {
         qh: &QueueHandle<Self>,
         output: wl_output::WlOutput,
     ) {
+        tracing::info!("Wayland output removed");
         let config_handle = std::sync::Arc::clone(&self.config);
         let config = config_handle.read().expect("config lock poisoned");
         self.remove_output(&output);

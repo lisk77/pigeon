@@ -1,5 +1,7 @@
 use std::{
     collections::HashMap,
+    fmt,
+    path::Path,
     sync::{Arc, Weak},
 };
 
@@ -11,6 +13,17 @@ const MAX_IMAGE_BYTES: usize = 64 * 1024 * 1024;
 
 #[derive(Clone)]
 pub struct Image(RgbaImage);
+
+impl fmt::Debug for Image {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let (width, height) = self.dimensions();
+        formatter
+            .debug_struct("Image")
+            .field("width", &width)
+            .field("height", &height)
+            .finish()
+    }
+}
 
 impl Image {
     pub fn dimensions(&self) -> (u32, u32) {
@@ -210,8 +223,22 @@ fn decode_app_icon(app_icon: &str) -> Option<Image> {
 fn decode_image_path(path: &str) -> Option<Image> {
     let path = match path.strip_prefix("file://") {
         Some(path) if path.starts_with('/') => path,
-        Some(_) => return None,
-        None => path,
+        Some(path) => {
+            tracing::warn!(
+                path = %path,
+                "ignoring relative file URI image path; send an absolute file:// URI instead"
+            );
+            return None;
+        }
+        None => {
+            if !Path::new(path).is_absolute() {
+                tracing::warn!(
+                    path = %path,
+                    "relative image path is resolved relative to the daemon process; send an absolute path instead"
+                );
+            }
+            path
+        }
     };
 
     let mut reader = ImageReader::open(path).ok()?.with_guessed_format().ok()?;

@@ -77,7 +77,7 @@ impl PigeonConfig {
         match Self::load(&path) {
             Ok(config) => config,
             Err(error) => {
-                eprintln!("config load failed; using defaults: {error}");
+                tracing::warn!(%error, "config load failed; using defaults");
                 Self {
                     path,
                     ..Self::default()

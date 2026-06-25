@@ -77,8 +77,10 @@ impl<'de> Deserialize<'de> for NotificationTemplate {
         match Self::parse(&input) {
             Ok(template) => Ok(template),
             Err(error) => {
-                eprintln!(
-                    "invalid notification format {input:?}; using the default layout: {error:?}"
+                tracing::warn!(
+                    input,
+                    ?error,
+                    "invalid notification format; using the default layout"
                 );
                 Ok(Self::default())
             }

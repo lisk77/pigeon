@@ -175,6 +175,16 @@ impl Pigeon {
 
         if action == RuleAction::Block {
             let id = self.queue.lock().expect("queue lock poisoned").next_id();
+            tracing::info!(
+                id,
+                app_name = %notification.app_name,
+                summary = %notification.summary,
+                "blocked notification"
+            );
+            tracing::debug!(
+                notification = format_args!("{notification:#?}"),
+                "blocked notification payload"
+            );
             return id;
         }
 
@@ -191,6 +201,17 @@ impl Pigeon {
                 let id = queue.entries[index].notification.id;
                 let generation = queue.entries[index].generation.wrapping_add(1);
                 notification.id = id;
+                tracing::info!(
+                    id,
+                    generation,
+                    app_name = %notification.app_name,
+                    summary = %notification.summary,
+                    "replaced notification"
+                );
+                tracing::debug!(
+                    notification = format_args!("{notification:#?}"),
+                    "stored notification payload"
+                );
                 queue.entries[index] = QueueEntry {
                     notification,
                     generation,
@@ -201,10 +222,33 @@ impl Pigeon {
                 };
                 EnqueueOutcome::Stored(id)
             } else if queue.entries.len() >= MAX_LIVE_NOTIFICATIONS {
-                EnqueueOutcome::Rejected(queue.next_id())
+                let id = queue.next_id();
+                tracing::warn!(
+                    id,
+                    app_name = %notification.app_name,
+                    summary = %notification.summary,
+                    max_live = MAX_LIVE_NOTIFICATIONS,
+                    "rejected notification because queue is full"
+                );
+                tracing::debug!(
+                    notification = format_args!("{notification:#?}"),
+                    "rejected notification payload"
+                );
+                EnqueueOutcome::Rejected(id)
             } else {
                 let id = queue.next_id();
                 notification.id = id;
+                tracing::info!(
+                    id,
+                    generation = 1_u64,
+                    app_name = %notification.app_name,
+                    summary = %notification.summary,
+                    "queued notification"
+                );
+                tracing::debug!(
+                    notification = format_args!("{notification:#?}"),
+                    "stored notification payload"
+                );
                 queue.entries.push_back(QueueEntry {
                     notification,
                     generation: 1,
@@ -244,6 +288,7 @@ impl Pigeon {
             .expect("queue lock poisoned")
             .remove(id, None);
         if removed.is_some() {
+            tracing::info!(id, "closed notification by request");
             self.image_cache
                 .lock()
                 .expect("image cache lock poisoned")
@@ -304,6 +349,7 @@ pub async fn run_lifecycle(
             LifecycleCommand::Dismiss { id } => {
                 let removed = queue.lock().expect("queue lock poisoned").remove(id, None);
                 let Some(entry) = removed else {
+                    tracing::debug!(id, "ignored dismiss for unknown notification");
                     continue;
                 };
                 let action = entry
@@ -312,6 +358,7 @@ pub async fn run_lifecycle(
                     .get_key_value("default")
                     .map(|(key, _)| key.clone());
                 if let Some(action) = action {
+                    tracing::info!(id, action = %action, "invoking notification action");
                     let _ = connection
                         .emit_signal(
                             None::<&str>,
@@ -321,6 +368,8 @@ pub async fn run_lifecycle(
                             &(id, action),
                         )
                         .await;
+                } else {
+                    tracing::info!(id, "dismissed notification without default action");
                 }
                 emit_closed(&connection, id, 2).await;
                 image_cache
@@ -337,6 +386,7 @@ pub async fn run_lifecycle(
                     .remove(id, Some(generation))
                     .is_some()
                 {
+                    tracing::info!(id, generation, "expired notification");
                     emit_closed(&connection, id, 1).await;
                     image_cache
                         .lock()

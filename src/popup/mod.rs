@@ -55,6 +55,8 @@ impl Popup {
         lifecycle_sender: UnboundedSender<LifecycleCommand>,
     ) -> Result<(), Box<dyn std::error::Error>> {
         let connection = Connection::connect_to_env()?;
+        tracing::info!("connected to Wayland compositor");
+
         let (globals, event_queue) = registry_queue_init(&connection)?;
         let qh = event_queue.handle();
 
@@ -65,6 +67,7 @@ impl Popup {
         let compositor = CompositorState::bind(&globals, &qh)?;
         let layer_shell = LayerShell::bind(&globals, &qh)?;
         let shm = Shm::bind(&globals, &qh)?;
+        tracing::info!("bound Wayland compositor, layer shell, and shared memory globals");
 
         let mut popup = Self {
             registry_state: RegistryState::new(&globals),
@@ -89,6 +92,7 @@ impl Popup {
             }
         })?;
 
+        tracing::info!("popup event loop started");
         loop {
             event_loop.dispatch(None, &mut popup)?;
             popup.collect_released_frames();

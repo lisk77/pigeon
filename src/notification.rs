@@ -4,7 +4,7 @@ use crate::images::Image;
 
 const MAX_STRING_HINTS: usize = 64;
 
-#[derive(Clone, Default)]
+#[derive(Clone, Debug, Default)]
 pub struct NotificationHints {
     pub desktop_entry: Option<String>,
     pub category: Option<String>,
@@ -35,6 +35,7 @@ impl NotificationHints {
     }
 }
 
+#[derive(Debug)]
 pub struct Notification {
     pub id: u32,
     pub app_name: String,
