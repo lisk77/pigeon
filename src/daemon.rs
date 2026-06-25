@@ -306,7 +306,11 @@ pub async fn run_lifecycle(
                 let Some(entry) = removed else {
                     continue;
                 };
-                let action = entry.notification.actions.get("default").cloned();
+                let action = entry
+                    .notification
+                    .actions
+                    .get_key_value("default")
+                    .map(|(key, _)| key.clone());
                 if let Some(action) = action {
                     let _ = connection
                         .emit_signal(
