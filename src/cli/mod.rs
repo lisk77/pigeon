@@ -1,4 +1,5 @@
 pub mod config;
+mod notification;
 pub mod profile;
 pub mod serve;
 

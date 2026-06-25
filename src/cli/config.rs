@@ -1,4 +1,4 @@
-use crate::config::PigeonConfig;
+use crate::{cli::notification, config::PigeonConfig};
 use std::path::PathBuf;
 
 pub fn config_default() -> Result<(), Box<dyn std::error::Error>> {
@@ -28,6 +28,11 @@ pub fn config_set_path(path: PathBuf) -> Result<(), Box<dyn std::error::Error>> 
     } else {
         write_path_pointer(&path)?;
     }
+
+    notification::emit(
+            "Pigeon",
+            &format!("Config path updated: {}", path.display()),
+        );
 
     Ok(())
 }
