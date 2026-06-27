@@ -38,8 +38,16 @@ pub fn render_card(
         notification_config.border.width,
         notification_config.corner_radius,
         notification_config.gradient_direction,
+        notification_config
+            .border
+            .gradient_direction
+            .unwrap_or(notification_config.gradient_direction),
         progress,
         &notification_config.progress.color,
+        notification_config
+            .progress
+            .gradient_direction
+            .unwrap_or(notification_config.gradient_direction),
     );
 
     let outer_padding = notification_config
@@ -148,9 +156,11 @@ fn fill_notification_background(
     border: &ColorConfig,
     border_width: u32,
     corner_radius: u32,
-    gradient_direction: GradientDirection,
+    background_gradient_direction: GradientDirection,
+    border_gradient_direction: GradientDirection,
     progress: Option<ProgressRect>,
     progress_color: &ColorConfig,
+    progress_gradient_direction: GradientDirection,
 ) {
     let border_width = border_width.min(full_width / 2).min(full_height / 2);
     let inner_width = full_width.saturating_sub(border_width.saturating_mul(2));
@@ -166,14 +176,14 @@ fn fill_notification_background(
                 }
                 _ if border_width == 0 => {
                     let background =
-                        background.at(x, y, full_width, full_height, gradient_direction);
+                        background.at(x, y, full_width, full_height, background_gradient_direction);
                     apply_progress(
                         background,
                         x,
                         y,
                         full_width,
                         full_height,
-                        gradient_direction,
+                        progress_gradient_direction,
                         progress,
                         progress_color,
                     )
@@ -191,19 +201,19 @@ fn fill_notification_background(
                     ) =>
                 {
                     let background =
-                        background.at(x, y, full_width, full_height, gradient_direction);
+                        background.at(x, y, full_width, full_height, background_gradient_direction);
                     apply_progress(
                         background,
                         x,
                         y,
                         full_width,
                         full_height,
-                        gradient_direction,
+                        progress_gradient_direction,
                         progress,
                         progress_color,
                     )
                 }
-                _ => border.at(x, y, full_width, full_height, gradient_direction),
+                _ => border.at(x, y, full_width, full_height, border_gradient_direction),
             };
             canvas[pixel..pixel + 4].copy_from_slice(&color);
         }

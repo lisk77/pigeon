@@ -1,6 +1,6 @@
 use serde::{Deserialize, Serialize};
 
-use super::ColorConfig;
+use super::{ColorConfig, GradientDirection};
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(default)]
@@ -11,6 +11,8 @@ pub struct BorderConfig {
         serialize_with = "super::serialize_rgba_color"
     )]
     pub color: ColorConfig,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub gradient_direction: Option<GradientDirection>,
 }
 
 impl Default for BorderConfig {
@@ -18,6 +20,7 @@ impl Default for BorderConfig {
         Self {
             width: 1,
             color: ColorConfig::solid([0x40, 0x40, 0x40, 0xff]),
+            gradient_direction: None,
         }
     }
 }

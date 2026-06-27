@@ -90,11 +90,12 @@ pub struct BorderOverride {
         serialize_with = "serialize_optional_rgba_color"
     )]
     pub color: Option<ColorConfig>,
+    pub gradient_direction: Option<GradientDirection>,
 }
 
 impl BorderOverride {
     fn is_empty(&self) -> bool {
-        self.width.is_none() && self.color.is_none()
+        self.width.is_none() && self.color.is_none() && self.gradient_direction.is_none()
     }
 
     fn apply_to(&self, config: &mut NotificationConfig) {
@@ -103,6 +104,9 @@ impl BorderOverride {
         }
         if let Some(value) = &self.color {
             config.border.color = value.clone();
+        }
+        if let Some(value) = self.gradient_direction {
+            config.border.gradient_direction = Some(value);
         }
     }
 }
@@ -216,6 +220,7 @@ pub struct ProgressOverride {
         serialize_with = "serialize_optional_rgba_color"
     )]
     pub color: Option<ColorConfig>,
+    pub gradient_direction: Option<GradientDirection>,
 }
 
 impl ProgressOverride {
@@ -226,6 +231,7 @@ impl ProgressOverride {
             && self.inset.is_none()
             && self.corner_radius.is_none()
             && self.color.is_none()
+            && self.gradient_direction.is_none()
     }
 
     fn apply_to(&self, config: &mut NotificationConfig) {
@@ -246,6 +252,9 @@ impl ProgressOverride {
         }
         if let Some(value) = &self.color {
             config.progress.color = value.clone();
+        }
+        if let Some(value) = self.gradient_direction {
+            config.progress.gradient_direction = Some(value);
         }
     }
 }

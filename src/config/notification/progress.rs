@@ -1,6 +1,6 @@
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
-use super::{ColorConfig, deserialize_rgba_color, serialize_rgba_color};
+use super::{ColorConfig, GradientDirection, deserialize_rgba_color, serialize_rgba_color};
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(default)]
@@ -15,6 +15,8 @@ pub struct ProgressConfig {
         serialize_with = "serialize_rgba_color"
     )]
     pub color: ColorConfig,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub gradient_direction: Option<GradientDirection>,
 }
 
 impl Default for ProgressConfig {
@@ -26,6 +28,7 @@ impl Default for ProgressConfig {
             inset: 0,
             corner_radius: 0,
             color: ColorConfig::solid([0xac, 0x81, 0x5e, 0x80]),
+            gradient_direction: None,
         }
     }
 }
