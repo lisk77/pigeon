@@ -20,7 +20,7 @@ pub fn render_card(
     notification_config: &NotificationConfig,
     fonts: &mut FontCtx,
 ) {
-    let progress = progress_rect(
+    let progress = progress_bar(
         notification,
         full_width,
         full_height,
@@ -47,6 +47,11 @@ pub fn render_card(
         notification_config
             .progress
             .gradient_direction
+            .unwrap_or(notification_config.gradient_direction),
+        notification_config.progress.background.as_ref(),
+        notification_config
+            .progress
+            .background_gradient_direction
             .unwrap_or(notification_config.gradient_direction),
     );
 
@@ -158,9 +163,11 @@ fn fill_notification_background(
     corner_radius: u32,
     background_gradient_direction: GradientDirection,
     border_gradient_direction: GradientDirection,
-    progress: Option<ProgressRect>,
+    progress: Option<ProgressBar>,
     progress_color: &ColorConfig,
     progress_gradient_direction: GradientDirection,
+    progress_background: Option<&ColorConfig>,
+    progress_background_gradient_direction: GradientDirection,
 ) {
     let border_width = border_width.min(full_width / 2).min(full_height / 2);
     let inner_width = full_width.saturating_sub(border_width.saturating_mul(2));
@@ -186,6 +193,8 @@ fn fill_notification_background(
                         progress_gradient_direction,
                         progress,
                         progress_color,
+                        progress_background,
+                        progress_background_gradient_direction,
                     )
                 }
                 _ if inner_width > 0
@@ -211,6 +220,8 @@ fn fill_notification_background(
                         progress_gradient_direction,
                         progress,
                         progress_color,
+                        progress_background,
+                        progress_background_gradient_direction,
                     )
                 }
                 _ => border.at(x, y, full_width, full_height, border_gradient_direction),
@@ -218,6 +229,12 @@ fn fill_notification_background(
             canvas[pixel..pixel + 4].copy_from_slice(&color);
         }
     }
+}
+
+#[derive(Clone, Copy)]
+struct ProgressBar {
+    track: ProgressRect,
+    fill: Option<ProgressRect>,
 }
 
 #[derive(Clone, Copy)]
@@ -243,18 +260,14 @@ impl ProgressRect {
     }
 }
 
-fn progress_rect(
+fn progress_bar(
     notification: &Notification,
     full_width: u32,
     full_height: u32,
     border_width: u32,
     config: &ProgressConfig,
-) -> Option<ProgressRect> {
+) -> Option<ProgressBar> {
     let value = notification.progress()?.clamp(0, 100) as u32;
-    if value == 0 {
-        return None;
-    }
-
     let border_width = border_width.min(full_width / 2).min(full_height / 2);
     let inner_width = full_width.saturating_sub(border_width.saturating_mul(2));
     let inner_height = full_height.saturating_sub(border_width.saturating_mul(2));
@@ -266,42 +279,66 @@ fn progress_rect(
 
     if config.direction.is_horizontal() {
         let thickness = config.thickness.resolve(height);
-        let fill_width = width.saturating_mul(value) / 100;
-        if thickness == 0 || fill_width == 0 {
+        if thickness == 0 || width == 0 {
             return None;
         }
 
         let y = y.saturating_add(aligned_offset(height, thickness, &config.alignment));
-        let x = match config.direction {
-            ProgressDirection::RightToLeft => x.saturating_add(width.saturating_sub(fill_width)),
-            _ => x,
-        };
-        Some(ProgressRect {
+        let track = ProgressRect {
             x,
             y,
-            width: fill_width,
+            width,
             height: thickness,
             corner_radius: config.corner_radius,
-        })
+        };
+        let fill_width = width.saturating_mul(value) / 100;
+        let fill = (fill_width > 0).then(|| {
+            let x = match config.direction {
+                ProgressDirection::RightToLeft => {
+                    x.saturating_add(width.saturating_sub(fill_width))
+                }
+                _ => x,
+            };
+            ProgressRect {
+                x,
+                y,
+                width: fill_width,
+                height: thickness,
+                corner_radius: config.corner_radius,
+            }
+        });
+        Some(ProgressBar { track, fill })
     } else {
         let thickness = config.thickness.resolve(width);
-        let fill_height = height.saturating_mul(value) / 100;
-        if thickness == 0 || fill_height == 0 {
+        if thickness == 0 || height == 0 {
             return None;
         }
 
         let x = x.saturating_add(aligned_offset(width, thickness, &config.alignment));
-        let y = match config.direction {
-            ProgressDirection::BottomToTop => y.saturating_add(height.saturating_sub(fill_height)),
-            _ => y,
-        };
-        Some(ProgressRect {
+        let track = ProgressRect {
             x,
             y,
             width: thickness,
-            height: fill_height,
+            height,
             corner_radius: config.corner_radius,
-        })
+        };
+        let fill_height = height.saturating_mul(value) / 100;
+        let fill = (fill_height > 0).then(|| {
+            let y = match config.direction {
+                ProgressDirection::BottomToTop => {
+                    y.saturating_add(height.saturating_sub(fill_height))
+                }
+                _ => y,
+            };
+            ProgressRect {
+                x,
+                y,
+                width: thickness,
+                height: fill_height,
+                corner_radius: config.corner_radius,
+            }
+        });
+        Some(ProgressBar { track, fill })
     }
 }
 
@@ -320,10 +357,34 @@ fn apply_progress(
     width: u32,
     height: u32,
     gradient_direction: GradientDirection,
-    progress: Option<ProgressRect>,
+    progress: Option<ProgressBar>,
     progress_color: &ColorConfig,
+    progress_background: Option<&ColorConfig>,
+    progress_background_gradient_direction: GradientDirection,
 ) -> RgbaColor {
-    if progress.is_some_and(|progress| progress.contains(x, y)) {
+    let Some(progress) = progress else {
+        return background;
+    };
+
+    let background = if progress.track.contains(x, y) {
+        match progress_background {
+            Some(progress_background) => {
+                let progress_background = progress_background.at(
+                    x,
+                    y,
+                    width,
+                    height,
+                    progress_background_gradient_direction,
+                );
+                blend_color(background, progress_background)
+            }
+            None => background,
+        }
+    } else {
+        background
+    };
+
+    if progress.fill.is_some_and(|fill| fill.contains(x, y)) {
         let progress_color = progress_color.at(x, y, width, height, gradient_direction);
         blend_color(background, progress_color)
     } else {

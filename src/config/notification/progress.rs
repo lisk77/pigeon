@@ -17,6 +17,10 @@ pub struct ProgressConfig {
     pub color: ColorConfig,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub gradient_direction: Option<GradientDirection>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub background: Option<ColorConfig>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub background_gradient_direction: Option<GradientDirection>,
 }
 
 impl Default for ProgressConfig {
@@ -29,6 +33,8 @@ impl Default for ProgressConfig {
             corner_radius: 0,
             color: ColorConfig::solid([0xac, 0x81, 0x5e, 0x80]),
             gradient_direction: None,
+            background: None,
+            background_gradient_direction: None,
         }
     }
 }

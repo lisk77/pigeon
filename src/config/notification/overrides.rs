@@ -221,6 +221,8 @@ pub struct ProgressOverride {
     )]
     pub color: Option<ColorConfig>,
     pub gradient_direction: Option<GradientDirection>,
+    pub background: Option<ColorConfig>,
+    pub background_gradient_direction: Option<GradientDirection>,
 }
 
 impl ProgressOverride {
@@ -232,6 +234,8 @@ impl ProgressOverride {
             && self.corner_radius.is_none()
             && self.color.is_none()
             && self.gradient_direction.is_none()
+            && self.background.is_none()
+            && self.background_gradient_direction.is_none()
     }
 
     fn apply_to(&self, config: &mut NotificationConfig) {
@@ -255,6 +259,12 @@ impl ProgressOverride {
         }
         if let Some(value) = self.gradient_direction {
             config.progress.gradient_direction = Some(value);
+        }
+        if let Some(value) = &self.background {
+            config.progress.background = Some(value.clone());
+        }
+        if let Some(value) = self.background_gradient_direction {
+            config.progress.background_gradient_direction = Some(value);
         }
     }
 }
