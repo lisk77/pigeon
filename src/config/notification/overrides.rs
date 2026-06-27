@@ -1,8 +1,9 @@
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
 use super::{
-    NotificationConfig, NotificationTemplate, ProgressAlignment, ProgressDirection,
-    ProgressThickness, TextStyleConfig, deserialize_rgba_color, serialize_rgba_color,
+    ColorConfig, GradientDirection, NotificationConfig, NotificationTemplate, ProgressAlignment,
+    ProgressDirection, ProgressThickness, TextStyleConfig, deserialize_rgba_color,
+    serialize_rgba_color,
 };
 
 #[derive(Debug, Default, Deserialize, Serialize)]
@@ -17,7 +18,7 @@ pub struct NotificationStyleOverride {
         deserialize_with = "deserialize_optional_rgba_color",
         serialize_with = "serialize_optional_rgba_color"
     )]
-    pub color: Option<[u8; 4]>,
+    pub color: Option<ColorConfig>,
     pub emoji_font: Option<String>,
     pub border: BorderOverride,
     pub thumbnail: ThumbnailOverride,
@@ -58,8 +59,8 @@ impl NotificationStyleOverride {
         if let Some(value) = &self.format {
             resolved.format = value.clone();
         }
-        if let Some(value) = self.color {
-            resolved.color = value;
+        if let Some(value) = &self.color {
+            resolved.color = value.clone();
         }
         if let Some(value) = &self.emoji_font {
             resolved.emoji_font = value.clone();
@@ -88,7 +89,7 @@ pub struct BorderOverride {
         deserialize_with = "deserialize_optional_rgba_color",
         serialize_with = "serialize_optional_rgba_color"
     )]
-    pub color: Option<[u8; 4]>,
+    pub color: Option<ColorConfig>,
 }
 
 impl BorderOverride {
@@ -100,8 +101,8 @@ impl BorderOverride {
         if let Some(value) = self.width {
             config.border.width = value;
         }
-        if let Some(value) = self.color {
-            config.border.color = value;
+        if let Some(value) = &self.color {
+            config.border.color = value.clone();
         }
     }
 }
@@ -161,7 +162,8 @@ pub struct TextStyleOverride {
         deserialize_with = "deserialize_optional_rgba_color",
         serialize_with = "serialize_optional_rgba_color"
     )]
-    pub color: Option<[u8; 4]>,
+    pub color: Option<ColorConfig>,
+    pub gradient_direction: Option<GradientDirection>,
     pub font_family: Option<String>,
 }
 
@@ -171,6 +173,7 @@ impl TextStyleOverride {
             && self.bold.is_none()
             && self.italic.is_none()
             && self.color.is_none()
+            && self.gradient_direction.is_none()
             && self.font_family.is_none()
     }
 
@@ -184,8 +187,11 @@ impl TextStyleOverride {
         if let Some(value) = self.italic {
             style.italic = value;
         }
-        if let Some(value) = self.color {
-            style.color = value;
+        if let Some(value) = &self.color {
+            style.color = value.clone();
+        }
+        if let Some(value) = self.gradient_direction {
+            style.gradient_direction = Some(value);
         }
         if let Some(value) = &self.font_family {
             style.font_family = Some(value.clone());
@@ -209,7 +215,7 @@ pub struct ProgressOverride {
         deserialize_with = "deserialize_optional_rgba_color",
         serialize_with = "serialize_optional_rgba_color"
     )]
-    pub color: Option<[u8; 4]>,
+    pub color: Option<ColorConfig>,
 }
 
 impl ProgressOverride {
@@ -238,13 +244,13 @@ impl ProgressOverride {
         if let Some(value) = self.corner_radius {
             config.progress.corner_radius = value;
         }
-        if let Some(value) = self.color {
-            config.progress.color = value;
+        if let Some(value) = &self.color {
+            config.progress.color = value.clone();
         }
     }
 }
 
-fn deserialize_optional_rgba_color<'de, D>(deserializer: D) -> Result<Option<[u8; 4]>, D::Error>
+fn deserialize_optional_rgba_color<'de, D>(deserializer: D) -> Result<Option<ColorConfig>, D::Error>
 where
     D: Deserializer<'de>,
 {
@@ -252,7 +258,7 @@ where
 }
 
 fn serialize_optional_rgba_color<S>(
-    color: &Option<[u8; 4]>,
+    color: &Option<ColorConfig>,
     serializer: S,
 ) -> Result<S::Ok, S::Error>
 where

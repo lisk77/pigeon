@@ -1,6 +1,6 @@
 use serde::{Deserialize, Serialize};
 
-use super::deserialize_rgba_color;
+use super::{ColorConfig, GradientDirection, deserialize_rgba_color};
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(default)]
@@ -12,7 +12,9 @@ pub struct TextStyleConfig {
         deserialize_with = "deserialize_rgba_color",
         serialize_with = "super::serialize_rgba_color"
     )]
-    pub color: [u8; 4],
+    pub color: ColorConfig,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub gradient_direction: Option<GradientDirection>,
     pub font_family: Option<String>,
 }
 
@@ -22,7 +24,8 @@ impl Default for TextStyleConfig {
             font_size: 14.0,
             bold: false,
             italic: false,
-            color: [0xff, 0xff, 0xff, 0xff],
+            color: ColorConfig::solid([0xff, 0xff, 0xff, 0xff]),
+            gradient_direction: None,
             font_family: None,
         }
     }

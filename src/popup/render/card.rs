@@ -1,6 +1,7 @@
 use crate::{
     config::notification::{
-        NotificationConfig, ProgressAlignment, ProgressConfig, ProgressDirection, TemplateElement,
+        ColorConfig, GradientDirection, NotificationConfig, ProgressAlignment, ProgressConfig,
+        ProgressDirection, RgbaColor, TemplateElement,
     },
     notification::Notification,
     popup::render::{
@@ -32,12 +33,13 @@ pub fn render_card(
         height,
         full_width,
         full_height,
-        notification_config.color,
-        notification_config.border.color,
+        &notification_config.color,
+        &notification_config.border.color,
         notification_config.border.width,
         notification_config.corner_radius,
+        notification_config.gradient_direction,
         progress,
-        notification_config.progress.color,
+        &notification_config.progress.color,
     );
 
     let outer_padding = notification_config
@@ -98,6 +100,7 @@ pub fn render_card(
             summary_height.ceil() as u32,
             &notification_config.summary.text,
             &notification_config.emoji_font,
+            notification_config.gradient_direction,
         );
 
         draw_styled_text(
@@ -112,6 +115,7 @@ pub fn render_card(
             body_height,
             &notification_config.body.text,
             &notification_config.emoji_font,
+            notification_config.gradient_direction,
         );
     } else {
         let runs = notification_config.format.runs(notification);
@@ -129,6 +133,7 @@ pub fn render_card(
             text_height,
             &notification_config.body.text,
             &notification_config.emoji_font,
+            notification_config.gradient_direction,
         );
     }
 }
@@ -139,12 +144,13 @@ fn fill_notification_background(
     height: u32,
     full_width: u32,
     full_height: u32,
-    background: [u8; 4],
-    border: [u8; 4],
+    background: &ColorConfig,
+    border: &ColorConfig,
     border_width: u32,
     corner_radius: u32,
+    gradient_direction: GradientDirection,
     progress: Option<ProgressRect>,
-    progress_color: [u8; 4],
+    progress_color: &ColorConfig,
 ) {
     let border_width = border_width.min(full_width / 2).min(full_height / 2);
     let inner_width = full_width.saturating_sub(border_width.saturating_mul(2));
@@ -159,7 +165,18 @@ fn fill_notification_background(
                     [0, 0, 0, 0]
                 }
                 _ if border_width == 0 => {
-                    apply_progress(background, x, y, progress, progress_color)
+                    let background =
+                        background.at(x, y, full_width, full_height, gradient_direction);
+                    apply_progress(
+                        background,
+                        x,
+                        y,
+                        full_width,
+                        full_height,
+                        gradient_direction,
+                        progress,
+                        progress_color,
+                    )
                 }
                 _ if inner_width > 0
                     && inner_height > 0
@@ -173,9 +190,20 @@ fn fill_notification_background(
                         inner_radius,
                     ) =>
                 {
-                    apply_progress(background, x, y, progress, progress_color)
+                    let background =
+                        background.at(x, y, full_width, full_height, gradient_direction);
+                    apply_progress(
+                        background,
+                        x,
+                        y,
+                        full_width,
+                        full_height,
+                        gradient_direction,
+                        progress,
+                        progress_color,
+                    )
                 }
-                _ => border,
+                _ => border.at(x, y, full_width, full_height, gradient_direction),
             };
             canvas[pixel..pixel + 4].copy_from_slice(&color);
         }
@@ -276,20 +304,24 @@ fn aligned_offset(available: u32, thickness: u32, alignment: &ProgressAlignment)
 }
 
 fn apply_progress(
-    background: [u8; 4],
+    background: RgbaColor,
     x: u32,
     y: u32,
+    width: u32,
+    height: u32,
+    gradient_direction: GradientDirection,
     progress: Option<ProgressRect>,
-    progress_color: [u8; 4],
-) -> [u8; 4] {
+    progress_color: &ColorConfig,
+) -> RgbaColor {
     if progress.is_some_and(|progress| progress.contains(x, y)) {
+        let progress_color = progress_color.at(x, y, width, height, gradient_direction);
         blend_color(background, progress_color)
     } else {
         background
     }
 }
 
-fn blend_color(background: [u8; 4], foreground: [u8; 4]) -> [u8; 4] {
+fn blend_color(background: RgbaColor, foreground: RgbaColor) -> RgbaColor {
     let alpha = u16::from(foreground[3]);
     let inverse_alpha = 255 - alpha;
 
