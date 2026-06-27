@@ -1,6 +1,7 @@
 use clap::Parser;
 use pigeon::cli::{
-    Cli, Command, ConfigSubcommand, ProfileSubcommand, config::*, profile::*, serve::serve,
+    Cli, Command, ConfigSubcommand, HistorySubcommand, ProfileSubcommand, config::*, history::*,
+    profile::*, serve::serve,
 };
 use tracing_subscriber::{EnvFilter, fmt};
 
@@ -34,6 +35,12 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
             ConfigSubcommand::Default => config_default(),
             ConfigSubcommand::Path => config_path(),
             ConfigSubcommand::SetPath { path } => config_set_path(path),
+        },
+        Command::History(cmd) => match cmd.command {
+            HistorySubcommand::Show => history_show(),
+            HistorySubcommand::Clear => history_clear(),
+            HistorySubcommand::Enable => history_enable(),
+            HistorySubcommand::Disable => history_disable(),
         },
     }
 }

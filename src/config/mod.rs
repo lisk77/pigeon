@@ -9,10 +9,12 @@ use std::{
 
 use crate::notification::Notification;
 
+mod history;
 pub mod notification;
 mod profiles;
 mod timeouts;
 
+pub use history::{HistoryConfig, HistoryOverride};
 pub use notification::NotificationConfig;
 pub use profiles::{Profile, ProfileConfig, RuleAction};
 pub use timeouts::{TimeoutConfig, TimeoutOverride};
@@ -25,6 +27,7 @@ pub struct PigeonConfig {
     #[serde(skip)]
     pub path: PathBuf,
     pub timeouts: TimeoutConfig,
+    pub history: HistoryConfig,
     pub notification: NotificationConfig,
     pub profile: ProfileConfig,
     #[serde(skip_serializing_if = "profiles_are_implicit")]
@@ -43,6 +46,7 @@ impl Default for PigeonConfig {
         Self {
             path: Self::default_path(),
             timeouts: TimeoutConfig::default(),
+            history: HistoryConfig::default(),
             notification: NotificationConfig::default(),
             profile: ProfileConfig::default(),
             profiles,
@@ -134,7 +138,7 @@ impl PigeonConfig {
     pub fn presentation_for(
         &self,
         notification: &Notification,
-    ) -> (RuleAction, NotificationConfig, TimeoutConfig) {
+    ) -> (RuleAction, NotificationConfig, TimeoutConfig, HistoryConfig) {
         if self.profile.allow_profile_override {
             if let Some(name) = notification.profile() {
                 if let Some(presentation) = self.profile_presentation(name, notification) {
@@ -151,18 +155,20 @@ impl PigeonConfig {
         &self,
         name: &str,
         notification: &Notification,
-    ) -> Option<(RuleAction, NotificationConfig, TimeoutConfig)> {
+    ) -> Option<(RuleAction, NotificationConfig, TimeoutConfig, HistoryConfig)> {
         let default_profile = self.profile("default")?;
         let default_style = default_profile.notification.apply_to(&self.notification);
-        let defaults = default_profile.timeouts.apply_to(&self.timeouts);
+        let default_timeouts = default_profile.timeouts.apply_to(&self.timeouts);
+        let default_history = default_profile.history.apply_to(&self.history);
         let profile = self.profile(name)?;
 
-        let (profile_style, profiles) = if name == "default" {
-            (default_style, defaults)
+        let (profile_style, profile_timeouts, profile_history) = if name == "default" {
+            (default_style, default_timeouts, default_history)
         } else {
             (
                 profile.notification.apply_to(&default_style),
-                profile.timeouts.apply_to(&defaults),
+                profile.timeouts.apply_to(&default_timeouts),
+                profile.history.apply_to(&default_history),
             )
         };
 
@@ -170,9 +176,15 @@ impl PigeonConfig {
             Some(rule) => Some((
                 rule.action.unwrap_or(profile.default_action),
                 rule.notification.apply_to(&profile_style),
-                profiles,
+                profile_timeouts,
+                rule.history.apply_to(&profile_history),
             )),
-            None => Some((profile.default_action, profile_style, profiles)),
+            None => Some((
+                profile.default_action,
+                profile_style,
+                profile_timeouts,
+                profile_history,
+            )),
         }
     }
 

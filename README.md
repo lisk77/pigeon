@@ -68,3 +68,31 @@ The daemon will also recognize the `x-pigeon-profile` hint and set the profile f
 active = "study"
 allow_profile_override = true
 ```
+
+## History
+
+The History is disabled by default. To enable either set this value
+
+```toml
+[history]
+enabled = true
+```
+
+or use this command
+
+```
+pigeon history enable
+```
+
+It also works with the profile system
+
+```toml
+[profiles.study.history]
+enabled = false
+
+[[profiles.study.rules]]
+app_name = "mail"
+
+[profiles.study.rules.history]
+enabled = true
+```

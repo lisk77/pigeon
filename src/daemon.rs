@@ -93,7 +93,7 @@ impl NotificationQueue {
 
     fn refresh_presentation(&mut self, config: &PigeonConfig) {
         for entry in &mut self.entries {
-            let (_, style, timeouts) = config.presentation_for(&entry.notification);
+            let (_, style, timeouts, _) = config.presentation_for(&entry.notification);
             entry.style = style;
             if !entry.timer_started {
                 entry.timeout = resolve(entry.timeout_policy, &timeouts, &entry.notification);
@@ -167,7 +167,7 @@ impl Pigeon {
             hints: normalize_hints(&hints),
         };
 
-        let (action, style, timeouts) = {
+        let (action, style, timeouts, history) = {
             let config = self.config.read().expect("config lock poisoned");
             config.presentation_for(&notification)
         };
@@ -195,6 +195,13 @@ impl Pigeon {
             .thumbnail(&mut hints, &notification.app_icon, style.thumbnail.size);
 
         let timeout = resolve(timeout_policy, &timeouts, &notification);
+        let history_entry = match crate::history::serialize(&history, &notification) {
+            Ok(entry) => entry,
+            Err(error) => {
+                tracing::warn!(%error, "failed to serialize notification history");
+                None
+            }
+        };
         let outcome = {
             let mut queue = self.queue.lock().expect("queue lock poisoned");
             if let Some(index) = queue.find_replacement(replaces_id, &notification) {
@@ -263,6 +270,11 @@ impl Pigeon {
 
         match outcome {
             EnqueueOutcome::Stored(id) => {
+                if let Some(entry) = &history_entry {
+                    if let Err(error) = crate::history::append_serialized(entry) {
+                        tracing::warn!(%error, id, "failed to write notification history");
+                    }
+                }
                 self.image_cache
                     .lock()
                     .expect("image cache lock poisoned")

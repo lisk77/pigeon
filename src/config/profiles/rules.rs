@@ -1,7 +1,10 @@
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
-use crate::{config::notification::NotificationStyleOverride, notification::Notification};
+use crate::{
+    config::{HistoryOverride, notification::NotificationStyleOverride},
+    notification::Notification,
+};
 
 #[derive(Debug, Deserialize, Serialize)]
 pub struct Rule {
@@ -19,6 +22,8 @@ pub struct Rule {
     pub hints: HashMap<String, String>,
     #[serde(default)]
     pub notification: NotificationStyleOverride,
+    #[serde(default)]
+    pub history: HistoryOverride,
 }
 
 impl Rule {

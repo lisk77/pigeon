@@ -1,6 +1,7 @@
 pub mod cli;
 pub mod config;
 pub mod daemon;
+pub mod history;
 pub mod images;
 pub mod lexer;
 pub mod memory;

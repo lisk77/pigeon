@@ -1,4 +1,5 @@
 pub mod config;
+pub mod history;
 mod notification;
 pub mod profile;
 pub mod serve;
@@ -17,6 +18,7 @@ pub enum Command {
     Serve,
     Profile(ProfileCommand),
     Config(ConfigCommand),
+    History(HistoryCommand),
 }
 
 #[derive(Args)]
@@ -43,4 +45,18 @@ pub enum ConfigSubcommand {
     Default,
     Path,
     SetPath { path: PathBuf },
+}
+
+#[derive(Args)]
+pub struct HistoryCommand {
+    #[command(subcommand)]
+    pub command: HistorySubcommand,
+}
+
+#[derive(Subcommand)]
+pub enum HistorySubcommand {
+    Show,
+    Clear,
+    Enable,
+    Disable,
 }
