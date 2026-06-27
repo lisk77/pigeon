@@ -211,6 +211,7 @@ impl Popup {
                 {
                     let notification_changed = surface.generation != *generation;
                     surface.generation = *generation;
+                    surface.update_below_fullscreen(config.notification.below_fullscreen);
                     surface.update_position(&config.notification.position);
                     surface.full_width = *full_width;
                     surface.full_height = *full_height;
@@ -252,6 +253,7 @@ impl Popup {
                         *visible_height,
                         *full_width,
                         *full_height,
+                        config.notification.below_fullscreen,
                         &config.notification.position,
                     ));
                 }
@@ -312,6 +314,7 @@ impl Popup {
         let config = config_handle.read().expect("config lock poisoned");
         for surfaces in self.surfaces.values_mut() {
             for surface in surfaces {
+                surface.update_below_fullscreen(config.notification.below_fullscreen);
                 surface.update_position(&config.notification.position);
             }
         }

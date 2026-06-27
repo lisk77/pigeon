@@ -60,13 +60,14 @@ impl NotificationSurface {
         height: u32,
         full_width: u32,
         full_height: u32,
+        below_fullscreen: bool,
         position: &PositionConfig,
     ) -> Self {
         let wl_surface = compositor.create_surface(qh);
         let layer = layer_shell.create_layer_surface(
             qh,
             wl_surface,
-            Layer::Overlay,
+            layer_for(below_fullscreen),
             Some("pigeon-notification"),
             Some(&output),
         );
@@ -90,6 +91,10 @@ impl NotificationSurface {
 
     pub(super) fn update_position(&self, position: &PositionConfig) {
         self.layer.set_anchor(anchor_for(&position.anchor));
+    }
+
+    pub(super) fn update_below_fullscreen(&self, below_fullscreen: bool) {
+        self.layer.set_layer(layer_for(below_fullscreen));
     }
 
     pub(super) fn draw(
@@ -147,6 +152,14 @@ impl NotificationSurface {
 
     pub(super) fn take_frame(&mut self) -> Option<Frame> {
         self.frame.take()
+    }
+}
+
+fn layer_for(below_fullscreen: bool) -> Layer {
+    if below_fullscreen {
+        Layer::Top
+    } else {
+        Layer::Overlay
     }
 }
 

@@ -19,6 +19,7 @@ pub use text::TextStyleConfig;
 #[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(default)]
 pub struct NotificationConfig {
+    pub below_fullscreen: bool,
     pub min_width: u32,
     pub max_width: u32,
     pub min_height: u32,
@@ -46,6 +47,7 @@ pub struct NotificationConfig {
 impl Default for NotificationConfig {
     fn default() -> Self {
         Self {
+            below_fullscreen: false,
             min_width: 240,
             max_width: 360,
             min_height: 96,
