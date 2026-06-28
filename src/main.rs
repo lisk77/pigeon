@@ -6,6 +6,14 @@ use pigeon::cli::{
 use tracing_subscriber::{EnvFilter, fmt};
 
 fn main() {
+    if std::env::var_os(pigeon::sound::HELPER_ENV).is_some() {
+        if let Err(error) = pigeon::sound::run_helper(std::env::args_os().skip(1)) {
+            eprintln!("Error: {error}");
+            std::process::exit(1);
+        }
+        return;
+    }
+
     init_logging();
 
     if let Err(error) = run() {

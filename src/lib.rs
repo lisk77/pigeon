@@ -7,3 +7,4 @@ pub mod lexer;
 pub mod memory;
 pub mod notification;
 pub mod popup;
+pub mod sound;

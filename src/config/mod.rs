@@ -12,11 +12,13 @@ use crate::notification::Notification;
 mod history;
 pub mod notification;
 mod profiles;
+mod sound;
 mod timeouts;
 
 pub use history::{HistoryConfig, HistoryOverride};
 pub use notification::NotificationConfig;
 pub use profiles::{Profile, ProfileConfig, RuleAction};
+pub use sound::SoundConfig;
 pub use timeouts::{TimeoutConfig, TimeoutOverride};
 
 pub type SharedConfig = Arc<RwLock<PigeonConfig>>;
@@ -28,6 +30,7 @@ pub struct PigeonConfig {
     pub path: PathBuf,
     pub timeouts: TimeoutConfig,
     pub history: HistoryConfig,
+    pub sound: SoundConfig,
     pub notification: NotificationConfig,
     pub profile: ProfileConfig,
     #[serde(skip_serializing_if = "profiles_are_implicit")]
@@ -47,6 +50,7 @@ impl Default for PigeonConfig {
             path: Self::default_path(),
             timeouts: TimeoutConfig::default(),
             history: HistoryConfig::default(),
+            sound: SoundConfig::default(),
             notification: NotificationConfig::default(),
             profile: ProfileConfig::default(),
             profiles,
@@ -203,6 +207,16 @@ impl PigeonConfig {
         if notification.min_height > notification.max_height {
             return Err(config::ConfigError::Message(
                 "notification.min_height must not exceed notification.max_height".into(),
+            ));
+        }
+        if self.sound.enabled && self.sound.file.as_os_str().is_empty() {
+            return Err(config::ConfigError::Message(
+                "sound.file must be set when sound.enabled is true".into(),
+            ));
+        }
+        if !self.sound.volume.is_finite() || self.sound.volume < 0.0 {
+            return Err(config::ConfigError::Message(
+                "sound.volume must be a finite number greater than or equal to zero".into(),
             ));
         }
 

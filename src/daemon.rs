@@ -12,6 +12,7 @@ use crate::{
     images::ImageCache,
     notification::{Notification, NotificationHints},
     popup::{PopupEvent, PopupSender},
+    sound::SoundPlayer,
 };
 
 const MAX_LIVE_NOTIFICATIONS: usize = 32;
@@ -51,6 +52,7 @@ pub enum LifecycleCommand {
 pub struct Pigeon {
     queue: SharedQueue,
     image_cache: Arc<Mutex<ImageCache>>,
+    sound_player: Arc<SoundPlayer>,
     event_proxy: PopupSender,
     config: SharedConfig,
 }
@@ -115,6 +117,7 @@ impl Pigeon {
         Self {
             queue: Arc::new(Mutex::new(NotificationQueue::new())),
             image_cache: Arc::new(Mutex::new(ImageCache::default())),
+            sound_player: Arc::new(SoundPlayer::default()),
             event_proxy,
             config,
         }
@@ -279,6 +282,14 @@ impl Pigeon {
                     .lock()
                     .expect("image cache lock poisoned")
                     .purge_dead();
+                let sound = {
+                    self.config
+                        .read()
+                        .expect("config lock poisoned")
+                        .sound
+                        .clone()
+                };
+                self.sound_player.play(&sound);
                 let _ = self.event_proxy.send(PopupEvent::QueueChanged);
                 id
             }
