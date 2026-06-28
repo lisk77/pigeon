@@ -21,7 +21,7 @@ use super::render::{self, text::FontCtx};
 use crate::{
     config::{
         NotificationConfig, PigeonConfig,
-        notification::{Anchor as PositionAnchor, PositionConfig},
+        notification::{Anchor as PositionAnchor, AnimationEffect, PositionConfig},
     },
     notification::Notification,
 };
@@ -36,6 +36,7 @@ pub(super) struct NotificationSurface {
     pub(super) full_width: u32,
     pub(super) full_height: u32,
     frame: Option<Frame>,
+    base_pixels: Option<Vec<u8>>,
     margins: Margins,
     transition_edge: AnimatedEdge,
     transition: Option<Transition>,
@@ -91,6 +92,7 @@ impl NotificationSurface {
             full_width,
             full_height,
             frame: None,
+            base_pixels: None,
             margins: Margins::default(),
             transition_edge,
             transition: None,
@@ -149,6 +151,8 @@ impl NotificationSurface {
             style,
             fonts,
         );
+        self.base_pixels = visual_effects_enabled(style).then(|| canvas.to_vec());
+        self.apply_visual_transition_to(canvas);
         fonts.clear_raster_cache();
 
         self.layer
@@ -165,20 +169,93 @@ impl NotificationSurface {
         })
     }
 
-    pub(super) fn start_enter(&mut self, duration: u32, edge: AnimatedEdge) {
-        if duration == 0 {
-            return;
-        }
-        self.transition_edge = edge;
-        self.transition = Some(Transition::new(TransitionPhase::Enter, duration));
+    fn draw_transition_frame(&mut self, shm: &Shm) -> Option<Frame> {
+        let transition = self.transition?;
+        transition.visual_progress()?;
+        self.base_pixels.as_ref()?;
+        let stride = self
+            .width
+            .checked_mul(4)
+            .expect("notification buffer stride overflow");
+        let bytes = (stride as usize)
+            .checked_mul(self.height as usize)
+            .expect("notification buffer size overflow");
+        let mut pool = SlotPool::new(bytes, shm).expect("allocate notification buffer pool");
+        let (buffer, canvas) = pool
+            .create_buffer(
+                self.width as i32,
+                self.height as i32,
+                stride as i32,
+                wl_shm::Format::Argb8888,
+            )
+            .expect("allocate notification buffer");
+        self.apply_visual_transition_to(canvas);
+
+        self.layer
+            .wl_surface()
+            .damage_buffer(0, 0, self.width as i32, self.height as i32);
+        buffer
+            .attach_to(self.layer.wl_surface())
+            .expect("attach notification buffer");
+
+        self.frame.replace(Frame {
+            buffer,
+            _pool: pool,
+        })
     }
 
-    pub(super) fn start_exit(&mut self, duration: u32, edge: AnimatedEdge) {
+    fn apply_visual_transition_to(&self, canvas: &mut [u8]) {
+        let Some(transition) = self.transition else {
+            return;
+        };
+        let Some(progress) = transition.visual_progress() else {
+            return;
+        };
+        let Some(base_pixels) = &self.base_pixels else {
+            return;
+        };
+
+        match transition.effect {
+            AnimationEffect::Fade | AnimationEffect::SlideFade => {
+                copy_with_opacity(base_pixels, canvas, progress);
+            }
+            AnimationEffect::Scale => {
+                copy_scaled(
+                    base_pixels,
+                    canvas,
+                    self.width,
+                    self.height,
+                    scale_factor(progress),
+                );
+            }
+            AnimationEffect::None | AnimationEffect::Slide => {}
+        }
+    }
+
+    pub(super) fn start_enter(
+        &mut self,
+        duration: u32,
+        edge: AnimatedEdge,
+        effect: AnimationEffect,
+    ) {
         if duration == 0 {
             return;
         }
         self.transition_edge = edge;
-        self.transition = Some(Transition::new(TransitionPhase::Exit, duration));
+        self.transition = Some(Transition::new(TransitionPhase::Enter, duration, effect));
+    }
+
+    pub(super) fn start_exit(
+        &mut self,
+        duration: u32,
+        edge: AnimatedEdge,
+        effect: AnimationEffect,
+    ) {
+        if duration == 0 {
+            return;
+        }
+        self.transition_edge = edge;
+        self.transition = Some(Transition::new(TransitionPhase::Exit, duration, effect));
         self.frame_pending = false;
     }
 
@@ -197,14 +274,15 @@ impl NotificationSurface {
         self.layer.commit();
     }
 
-    pub(super) fn transition_frame(&mut self, time: u32) -> bool {
+    pub(super) fn transition_frame(&mut self, time: u32, shm: &Shm) -> (bool, Option<Frame>) {
         self.frame_pending = false;
 
         let Some(transition) = &mut self.transition else {
-            return false;
+            return (false, None);
         };
         let phase = transition.phase;
         let complete = transition.update(time);
+        let retired_frame = self.draw_transition_frame(shm);
         self.apply_margins();
         self.layer.commit();
 
@@ -214,10 +292,10 @@ impl NotificationSurface {
                 self.apply_margins();
                 self.layer.commit();
             }
-            return true;
+            return (true, retired_frame);
         }
 
-        false
+        (false, retired_frame)
     }
 
     pub(super) fn set_margins(&mut self, margins: Margins, transition_duration: Option<u32>) {
@@ -239,6 +317,7 @@ impl NotificationSurface {
                     to: margins,
                 },
                 duration.expect("transition duration checked above"),
+                AnimationEffect::None,
             ));
         }
         self.apply_margins();
@@ -260,6 +339,7 @@ pub(super) struct Margins {
 #[derive(Clone, Copy)]
 struct Transition {
     phase: TransitionPhase,
+    effect: AnimationEffect,
     duration: u32,
     started_at: Option<u32>,
     progress: f32,
@@ -273,9 +353,10 @@ enum TransitionPhase {
 }
 
 impl Transition {
-    fn new(phase: TransitionPhase, duration: u32) -> Self {
+    fn new(phase: TransitionPhase, duration: u32, effect: AnimationEffect) -> Self {
         Self {
             phase,
+            effect,
             duration,
             started_at: None,
             progress: 0.0,
@@ -290,10 +371,32 @@ impl Transition {
     }
 
     fn offset_progress(&self) -> f32 {
+        if !matches!(
+            self.effect,
+            AnimationEffect::Slide | AnimationEffect::SlideFade
+        ) {
+            return 0.0;
+        }
+
         match self.phase {
             TransitionPhase::Enter => ease_out_cubic(self.progress) - 1.0,
             TransitionPhase::Exit => -ease_in_cubic(self.progress),
             TransitionPhase::Move { .. } => 0.0,
+        }
+    }
+
+    fn visual_progress(&self) -> Option<f32> {
+        let progress = match self.phase {
+            TransitionPhase::Enter => ease_out_cubic(self.progress),
+            TransitionPhase::Exit => 1.0 - ease_in_cubic(self.progress),
+            TransitionPhase::Move { .. } => return None,
+        };
+
+        match self.effect {
+            AnimationEffect::Fade | AnimationEffect::SlideFade | AnimationEffect::Scale => {
+                Some(progress)
+            }
+            AnimationEffect::None | AnimationEffect::Slide => None,
         }
     }
 }
@@ -359,6 +462,65 @@ fn ease_out_cubic(progress: f32) -> f32 {
 
 fn ease_in_cubic(progress: f32) -> f32 {
     progress.powi(3)
+}
+
+fn copy_with_opacity(source: &[u8], target: &mut [u8], opacity: f32) {
+    let opacity = opacity.clamp(0.0, 1.0);
+    if opacity >= 0.999 {
+        target.copy_from_slice(source);
+        return;
+    }
+    if opacity <= 0.001 {
+        target.fill(0);
+        return;
+    }
+
+    for (source, target) in source.iter().zip(target.iter_mut()) {
+        *target = ((*source as f32) * opacity).round() as u8;
+    }
+}
+
+fn copy_scaled(source: &[u8], target: &mut [u8], width: u32, height: u32, scale: f32) {
+    let scale = scale.clamp(0.01, 1.0);
+    if scale >= 0.999 {
+        target.copy_from_slice(source);
+        return;
+    }
+
+    target.fill(0);
+    let scaled_width = ((width as f32) * scale).round().clamp(1.0, width as f32) as u32;
+    let scaled_height = ((height as f32) * scale).round().clamp(1.0, height as f32) as u32;
+    let x_offset = (width - scaled_width) / 2;
+    let y_offset = (height - scaled_height) / 2;
+
+    for target_y in 0..scaled_height {
+        let source_y = ((target_y as f32) / scale).floor() as u32;
+        let source_y = source_y.min(height.saturating_sub(1));
+        for target_x in 0..scaled_width {
+            let source_x = ((target_x as f32) / scale).floor() as u32;
+            let source_x = source_x.min(width.saturating_sub(1));
+            let source_index = ((source_y * width + source_x) * 4) as usize;
+            let target_index = (((target_y + y_offset) * width + target_x + x_offset) * 4) as usize;
+            target[target_index..target_index + 4]
+                .copy_from_slice(&source[source_index..source_index + 4]);
+        }
+    }
+}
+
+fn scale_factor(progress: f32) -> f32 {
+    0.88 + progress.clamp(0.0, 1.0) * 0.12
+}
+
+fn visual_effects_enabled(style: &NotificationConfig) -> bool {
+    effect_needs_pixels(style.animation.enter.effect)
+        || effect_needs_pixels(style.animation.exit.effect)
+}
+
+fn effect_needs_pixels(effect: AnimationEffect) -> bool {
+    matches!(
+        effect,
+        AnimationEffect::Fade | AnimationEffect::SlideFade | AnimationEffect::Scale
+    )
 }
 
 fn layer_for(below_fullscreen: bool) -> Layer {

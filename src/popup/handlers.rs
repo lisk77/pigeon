@@ -55,7 +55,10 @@ impl CompositorHandler for Popup {
             .flatten()
             .find(|surface| surface.layer.wl_surface() == wl_surface)
         {
-            let complete = surface.transition_frame(time);
+            let (complete, retired_frame) = surface.transition_frame(time, &self.shm);
+            if let Some(frame) = retired_frame {
+                self.retired_frames.push(frame);
+            }
             if complete || surface.transitioning() {
                 surface.request_transition_frame(qh);
             }
@@ -67,10 +70,13 @@ impl CompositorHandler for Popup {
             .iter()
             .position(|surface| surface.layer.wl_surface() == wl_surface)
         {
-            let complete = {
+            let (complete, retired_frame) = {
                 let surface = &mut self.exiting_surfaces[index];
-                surface.transition_frame(time)
+                surface.transition_frame(time, &self.shm)
             };
+            if let Some(frame) = retired_frame {
+                self.retired_frames.push(frame);
+            }
             if complete {
                 let surface = self.exiting_surfaces.remove(index);
                 self.retire_surface(surface);

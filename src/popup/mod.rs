@@ -194,7 +194,7 @@ impl Popup {
         }
 
         let layout_ids: BTreeSet<u32> = layout.iter().map(|(id, _, _, _, _, _)| *id).collect();
-        let transition_edge = transition_edge(config);
+        let transition_edge = anchor_transition_edge(config);
         let enter_transition = enter_transition(config);
         let exit_transition = exit_transition(config);
         let layout_transition_duration = layout_transition_duration(config);
@@ -270,7 +270,11 @@ impl Popup {
                     if let Some(surface) = surfaces.last_mut()
                         && let Some(transition) = enter_transition
                     {
-                        surface.start_enter(transition.duration, transition.edge);
+                        surface.start_enter(
+                            transition.duration,
+                            transition.edge,
+                            transition.effect,
+                        );
                     }
                 }
             }
@@ -339,7 +343,7 @@ impl Popup {
             for surface in surfaces {
                 surface.update_below_fullscreen(config.notification.below_fullscreen);
                 surface.update_position(&config.notification.position);
-                surface.update_transition_edge(transition_edge(&config));
+                surface.update_transition_edge(anchor_transition_edge(&config));
             }
         }
 
@@ -418,7 +422,7 @@ impl Popup {
             if let Some(transition) = exit_transition
                 && surface.configured
             {
-                surface.start_exit(transition.duration, transition.edge);
+                surface.start_exit(transition.duration, transition.edge, transition.effect);
                 surface.request_transition_frame(qh);
                 self.exiting_surfaces.push(surface);
             } else {
@@ -464,6 +468,7 @@ impl Popup {
 struct TransitionSpec {
     duration: u32,
     edge: surface::AnimatedEdge,
+    effect: AnimationEffect,
 }
 
 fn enter_transition(config: &PigeonConfig) -> Option<TransitionSpec> {
@@ -487,15 +492,23 @@ fn transition_spec(config: &PigeonConfig, transition: &TransitionConfig) -> Opti
 
     match transition.effect {
         AnimationEffect::None => None,
-        AnimationEffect::Slide => Some(TransitionSpec {
+        AnimationEffect::Slide
+        | AnimationEffect::Fade
+        | AnimationEffect::SlideFade
+        | AnimationEffect::Scale => Some(TransitionSpec {
             duration: u32::try_from(transition.duration).ok()?,
-            edge: transition_edge(config),
+            edge: transition_edge(config, transition.direction),
+            effect: transition.effect,
         }),
     }
 }
 
-fn transition_edge(config: &PigeonConfig) -> surface::AnimatedEdge {
-    match config.notification.animation.direction {
+fn anchor_transition_edge(config: &PigeonConfig) -> surface::AnimatedEdge {
+    transition_edge(config, AnimationDirection::Anchor)
+}
+
+fn transition_edge(config: &PigeonConfig, direction: AnimationDirection) -> surface::AnimatedEdge {
+    match direction {
         AnimationDirection::Anchor => surface::edge_for(&config.notification.position.anchor),
         AnimationDirection::Top => surface::AnimatedEdge::Top,
         AnimationDirection::Right => surface::AnimatedEdge::Right,
