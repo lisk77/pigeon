@@ -6,6 +6,8 @@ use pigeon::cli::{
 use tracing_subscriber::{EnvFilter, fmt};
 
 fn main() {
+    pigeon::memory::tune_allocator_for_low_memory();
+
     if std::env::var_os(pigeon::sound::HELPER_ENV).is_some() {
         if let Err(error) = pigeon::sound::run_helper(std::env::args_os().skip(1)) {
             eprintln!("Error: {error}");

@@ -339,7 +339,11 @@ impl Popup {
     }
 
     pub(in crate::popup) fn collect_released_frames(&mut self) {
+        let retired_count = self.retired_frames.len();
         self.retired_frames.retain(|frame| !frame.released());
+        if self.retired_frames.len() < retired_count {
+            crate::memory::trim_free_heap_pages();
+        }
         if self.retired_frames.is_empty()
             && self.surfaces.is_empty()
             && self.exiting_surfaces.is_empty()
