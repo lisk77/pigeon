@@ -42,7 +42,43 @@ impl CompositorHandler for Popup {
     ) {
     }
 
-    fn frame(&mut self, _: &Connection, _: &QueueHandle<Self>, _: &wl_surface::WlSurface, _: u32) {}
+    fn frame(
+        &mut self,
+        _: &Connection,
+        qh: &QueueHandle<Self>,
+        wl_surface: &wl_surface::WlSurface,
+        time: u32,
+    ) {
+        if let Some(surface) = self
+            .surfaces
+            .values_mut()
+            .flatten()
+            .find(|surface| surface.layer.wl_surface() == wl_surface)
+        {
+            let complete = surface.animation_frame(time);
+            if complete || surface.animating() {
+                surface.request_animation_frame(qh);
+            }
+            return;
+        }
+
+        if let Some(index) = self
+            .exiting_surfaces
+            .iter()
+            .position(|surface| surface.layer.wl_surface() == wl_surface)
+        {
+            let complete = {
+                let surface = &mut self.exiting_surfaces[index];
+                surface.animation_frame(time)
+            };
+            if complete {
+                let surface = self.exiting_surfaces.remove(index);
+                self.retire_surface(surface);
+            } else {
+                self.exiting_surfaces[index].request_animation_frame(qh);
+            }
+        }
+    }
 
     fn surface_enter(
         &mut self,
@@ -86,7 +122,7 @@ impl LayerShellHandler for Popup {
     fn configure(
         &mut self,
         _: &Connection,
-        _: &QueueHandle<Self>,
+        qh: &QueueHandle<Self>,
         layer: &LayerSurface,
         configure: LayerSurfaceConfigure,
         _: u32,
@@ -122,7 +158,7 @@ impl LayerShellHandler for Popup {
                     surface.height = configure.new_size.1;
                 }
                 surface.configured = true;
-                if surface.generation == generation {
+                let frame = if surface.generation == generation {
                     surface.draw(
                         &self.shm,
                         self.fonts
@@ -132,12 +168,14 @@ impl LayerShellHandler for Popup {
                     )
                 } else {
                     None
-                }
+                };
+                surface.request_animation_frame(qh);
+                frame
             };
             if let Some(frame) = retired_frame {
                 self.retired_frames.push(frame);
             }
-            surface::restack(&self.surfaces, &ordered_ids, &config);
+            surface::restack(&mut self.surfaces, &ordered_ids, &config);
         }
     }
 }

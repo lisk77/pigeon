@@ -1,5 +1,6 @@
 use serde::{Deserialize, Deserializer, Serialize, Serializer, ser::SerializeSeq};
 
+mod animation;
 mod body;
 mod border;
 mod overrides;
@@ -10,6 +11,7 @@ mod template;
 mod text;
 mod thumbnail;
 
+pub use animation::AnimationConfig;
 pub use overrides::NotificationStyleOverride;
 pub use position::{Anchor, PositionConfig};
 pub use progress::{ProgressAlignment, ProgressConfig, ProgressDirection, ProgressThickness};
@@ -20,6 +22,7 @@ pub use text::TextStyleConfig;
 #[serde(default)]
 pub struct NotificationConfig {
     pub below_fullscreen: bool,
+    pub animation: animation::AnimationConfig,
     pub gradient_direction: GradientDirection,
     pub min_width: u32,
     pub max_width: u32,
@@ -45,6 +48,7 @@ impl Default for NotificationConfig {
     fn default() -> Self {
         Self {
             below_fullscreen: false,
+            animation: animation::AnimationConfig::default(),
             gradient_direction: GradientDirection::Horizontal,
             min_width: 240,
             max_width: 360,

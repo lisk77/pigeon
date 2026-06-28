@@ -39,6 +39,7 @@ pub struct Popup {
     pub(in crate::popup) shm: Shm,
     pub(in crate::popup) queue: SharedQueue,
     pub(in crate::popup) surfaces: BTreeMap<u32, Vec<NotificationSurface>>,
+    pub(in crate::popup) exiting_surfaces: Vec<NotificationSurface>,
     pub(in crate::popup) retired_frames: Vec<Frame>,
     pub(in crate::popup) fonts: Option<FontCtx>,
     pub(in crate::popup) seat_state: SeatState,
@@ -77,6 +78,7 @@ impl Popup {
             shm,
             queue,
             surfaces: BTreeMap::new(),
+            exiting_surfaces: Vec::new(),
             retired_frames: Vec::new(),
             fonts: None,
             seat_state: SeatState::new(&globals, &qh),
@@ -189,7 +191,8 @@ impl Popup {
         }
 
         let layout_ids: BTreeSet<u32> = layout.iter().map(|(id, _, _, _, _, _)| *id).collect();
-        self.retain_surfaces(|id, surface| {
+        let animation_duration = animation_duration(config);
+        self.retain_surfaces(qh, animation_duration, |id, surface| {
             layout_ids.contains(&id) && outputs.iter().any(|output| output == &surface.output)
         });
 
@@ -256,6 +259,11 @@ impl Popup {
                         config.notification.below_fullscreen,
                         &config.notification.position,
                     ));
+                    if let Some(surface) = surfaces.last_mut()
+                        && let Some(duration) = animation_duration
+                    {
+                        surface.start_enter(duration);
+                    }
                 }
             }
         }
@@ -264,7 +272,7 @@ impl Popup {
         self.retired_frames.extend(retired_frames);
 
         let ordered_ids = layout.iter().map(|(id, ..)| *id).collect::<Vec<_>>();
-        surface::restack(&self.surfaces, &ordered_ids, config);
+        surface::restack(&mut self.surfaces, &ordered_ids, config);
         for (id, generation, ..) in layout {
             let _ = self
                 .lifecycle_sender
@@ -326,6 +334,7 @@ impl Popup {
         self.retired_frames.retain(|frame| !frame.released());
         if self.retired_frames.is_empty()
             && self.surfaces.is_empty()
+            && self.exiting_surfaces.is_empty()
             && self
                 .queue
                 .lock()
@@ -359,9 +368,16 @@ impl Popup {
             .flatten()
             .collect::<Vec<_>>();
         self.retire_surfaces(surfaces);
+        let exiting_surfaces = std::mem::take(&mut self.exiting_surfaces);
+        self.retire_surfaces(exiting_surfaces);
     }
 
-    fn retain_surfaces(&mut self, keep: impl Fn(u32, &NotificationSurface) -> bool) {
+    fn retain_surfaces(
+        &mut self,
+        qh: &QueueHandle<Self>,
+        animation_duration: Option<u32>,
+        keep: impl Fn(u32, &NotificationSurface) -> bool,
+    ) {
         let mut retained = BTreeMap::new();
         let mut removed = Vec::new();
         for (id, surfaces) in std::mem::take(&mut self.surfaces) {
@@ -378,10 +394,56 @@ impl Popup {
             }
         }
         self.surfaces = retained;
-        self.retire_surfaces(removed);
+        for mut surface in removed {
+            if let Some(duration) = animation_duration
+                && surface.configured
+            {
+                surface.start_exit(duration);
+                surface.request_animation_frame(qh);
+                self.exiting_surfaces.push(surface);
+            } else {
+                self.retire_surface(surface);
+            }
+        }
     }
 
     pub(in crate::popup) fn remove_output(&mut self, output: &wl_output::WlOutput) {
-        self.retain_surfaces(|_, surface| surface.output != *output);
+        let mut retained = BTreeMap::new();
+        let mut removed = Vec::new();
+        for (id, surfaces) in std::mem::take(&mut self.surfaces) {
+            let mut kept = Vec::new();
+            for surface in surfaces {
+                if surface.output == *output {
+                    removed.push(surface);
+                } else {
+                    kept.push(surface);
+                }
+            }
+            if !kept.is_empty() {
+                retained.insert(id, kept);
+            }
+        }
+        self.surfaces = retained;
+        self.retire_surfaces(removed);
+
+        let mut kept_exiting = Vec::new();
+        let mut removed_exiting = Vec::new();
+        for surface in std::mem::take(&mut self.exiting_surfaces) {
+            if surface.output == *output {
+                removed_exiting.push(surface);
+            } else {
+                kept_exiting.push(surface);
+            }
+        }
+        self.exiting_surfaces = kept_exiting;
+        self.retire_surfaces(removed_exiting);
     }
+}
+
+fn animation_duration(config: &PigeonConfig) -> Option<u32> {
+    if !config.notification.animation.enabled {
+        return None;
+    }
+
+    u32::try_from(config.notification.animation.duration).ok()
 }

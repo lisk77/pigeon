@@ -36,6 +36,10 @@ pub(super) struct NotificationSurface {
     pub(super) full_width: u32,
     pub(super) full_height: u32,
     frame: Option<Frame>,
+    margins: Margins,
+    edge: AnimatedEdge,
+    animation: Option<Transition>,
+    frame_pending: bool,
 }
 
 pub(super) struct Frame {
@@ -86,11 +90,17 @@ impl NotificationSurface {
             full_width,
             full_height,
             frame: None,
+            margins: Margins::default(),
+            edge: edge_for(&position.anchor),
+            animation: None,
+            frame_pending: false,
         }
     }
 
-    pub(super) fn update_position(&self, position: &PositionConfig) {
+    pub(super) fn update_position(&mut self, position: &PositionConfig) {
         self.layer.set_anchor(anchor_for(&position.anchor));
+        self.edge = edge_for(&position.anchor);
+        self.apply_margins();
     }
 
     pub(super) fn update_below_fullscreen(&self, below_fullscreen: bool) {
@@ -150,9 +160,148 @@ impl NotificationSurface {
         })
     }
 
+    pub(super) fn start_enter(&mut self, duration: u32) {
+        if duration == 0 {
+            return;
+        }
+        self.animation = Some(Transition::new(TransitionPhase::Enter, duration));
+    }
+
+    pub(super) fn start_exit(&mut self, duration: u32) {
+        if duration == 0 {
+            return;
+        }
+        self.animation = Some(Transition::new(TransitionPhase::Exit, duration));
+        self.frame_pending = false;
+    }
+
+    pub(super) fn animating(&self) -> bool {
+        self.animation.is_some()
+    }
+
+    pub(super) fn request_animation_frame(&mut self, qh: &QueueHandle<Popup>) {
+        if self.animation.is_none() || self.frame_pending {
+            return;
+        }
+
+        let surface = self.layer.wl_surface();
+        surface.frame(qh, surface.clone());
+        self.frame_pending = true;
+        self.layer.commit();
+    }
+
+    pub(super) fn animation_frame(&mut self, time: u32) -> bool {
+        self.frame_pending = false;
+
+        let Some(animation) = &mut self.animation else {
+            return false;
+        };
+        let complete = animation.update(time);
+        self.apply_margins();
+        self.layer.commit();
+
+        if complete {
+            self.animation = None;
+            return true;
+        }
+
+        false
+    }
+
+    pub(super) fn set_margins(&mut self, margins: Margins) {
+        self.margins = margins;
+        self.apply_margins();
+    }
+
     pub(super) fn take_frame(&mut self) -> Option<Frame> {
         self.frame.take()
     }
+}
+
+#[derive(Clone, Copy, Default)]
+pub(super) struct Margins {
+    pub(super) top: i32,
+    pub(super) right: i32,
+    pub(super) bottom: i32,
+    pub(super) left: i32,
+}
+
+#[derive(Clone, Copy)]
+struct Transition {
+    phase: TransitionPhase,
+    duration: u32,
+    started_at: Option<u32>,
+    progress: f32,
+}
+
+#[derive(Clone, Copy)]
+enum TransitionPhase {
+    Enter,
+    Exit,
+}
+
+impl Transition {
+    fn new(phase: TransitionPhase, duration: u32) -> Self {
+        Self {
+            phase,
+            duration,
+            started_at: None,
+            progress: 0.0,
+        }
+    }
+
+    fn update(&mut self, time: u32) -> bool {
+        let started_at = *self.started_at.get_or_insert(time);
+        let elapsed = time.saturating_sub(started_at);
+        self.progress = (elapsed as f32 / self.duration as f32).clamp(0.0, 1.0);
+        elapsed >= self.duration
+    }
+
+    fn offset_progress(&self) -> f32 {
+        match self.phase {
+            TransitionPhase::Enter => ease_out_cubic(self.progress) - 1.0,
+            TransitionPhase::Exit => -ease_in_cubic(self.progress),
+        }
+    }
+}
+
+impl NotificationSurface {
+    fn apply_margins(&self) {
+        let mut margins = self.margins;
+        if let Some(animation) = self.animation {
+            let vertical_distance = self.height.max(self.full_height) as f32;
+            let horizontal_distance = self.width.max(self.full_width) as f32;
+            let vertical_offset = (vertical_distance * animation.offset_progress()).round() as i32;
+            let horizontal_offset =
+                (horizontal_distance * animation.offset_progress()).round() as i32;
+
+            match self.edge {
+                AnimatedEdge::Top => margins.top += vertical_offset,
+                AnimatedEdge::Bottom => margins.bottom += vertical_offset,
+                AnimatedEdge::Left => margins.left += horizontal_offset,
+                AnimatedEdge::Right => margins.right += horizontal_offset,
+            }
+        }
+
+        self.layer
+            .set_margin(margins.top, margins.right, margins.bottom, margins.left);
+    }
+}
+
+#[derive(Clone, Copy)]
+enum AnimatedEdge {
+    Top,
+    Right,
+    Bottom,
+    Left,
+}
+
+fn ease_out_cubic(progress: f32) -> f32 {
+    1.0 - (1.0 - progress).powi(3)
+}
+
+fn ease_in_cubic(progress: f32) -> f32 {
+    progress.powi(3)
 }
 
 fn layer_for(below_fullscreen: bool) -> Layer {
@@ -176,8 +325,21 @@ fn anchor_for(anchor: &PositionAnchor) -> Anchor {
     }
 }
 
+fn edge_for(anchor: &PositionAnchor) -> AnimatedEdge {
+    match anchor {
+        PositionAnchor::Top | PositionAnchor::TopLeft | PositionAnchor::TopRight => {
+            AnimatedEdge::Top
+        }
+        PositionAnchor::Bottom | PositionAnchor::BottomLeft | PositionAnchor::BottomRight => {
+            AnimatedEdge::Bottom
+        }
+        PositionAnchor::Left => AnimatedEdge::Left,
+        PositionAnchor::Right => AnimatedEdge::Right,
+    }
+}
+
 pub(super) fn restack(
-    surfaces: &BTreeMap<u32, Vec<NotificationSurface>>,
+    surfaces: &mut BTreeMap<u32, Vec<NotificationSurface>>,
     ordered_ids: &[u32],
     config: &PigeonConfig,
 ) {
@@ -202,29 +364,55 @@ pub(super) fn restack(
         };
 
         for id in ordered_ids {
-            let Some(notification_surfaces) = surfaces.get(id) else {
+            let Some(notification_surfaces) = surfaces.get_mut(id) else {
                 continue;
             };
             let Some(surface) = notification_surfaces
-                .iter()
+                .iter_mut()
                 .find(|surface| surface.output == output)
             else {
                 continue;
             };
 
             let margins = match position.anchor {
-                PositionAnchor::Top => (offset, 0, 0, 0),
-                PositionAnchor::TopLeft => (offset, 0, 0, position.left_margin as i32),
-                PositionAnchor::TopRight => (offset, position.right_margin as i32, 0, 0),
-                PositionAnchor::Bottom => (0, 0, offset, 0),
-                PositionAnchor::BottomLeft => (0, 0, offset, position.left_margin as i32),
-                PositionAnchor::BottomRight => (0, position.right_margin as i32, offset, 0),
-                PositionAnchor::Left => (0, 0, 0, offset),
-                PositionAnchor::Right => (0, offset, 0, 0),
+                PositionAnchor::Top => Margins {
+                    top: offset,
+                    ..Margins::default()
+                },
+                PositionAnchor::TopLeft => Margins {
+                    top: offset,
+                    left: position.left_margin as i32,
+                    ..Margins::default()
+                },
+                PositionAnchor::TopRight => Margins {
+                    top: offset,
+                    right: position.right_margin as i32,
+                    ..Margins::default()
+                },
+                PositionAnchor::Bottom => Margins {
+                    bottom: offset,
+                    ..Margins::default()
+                },
+                PositionAnchor::BottomLeft => Margins {
+                    bottom: offset,
+                    left: position.left_margin as i32,
+                    ..Margins::default()
+                },
+                PositionAnchor::BottomRight => Margins {
+                    right: position.right_margin as i32,
+                    bottom: offset,
+                    ..Margins::default()
+                },
+                PositionAnchor::Left => Margins {
+                    left: offset,
+                    ..Margins::default()
+                },
+                PositionAnchor::Right => Margins {
+                    right: offset,
+                    ..Margins::default()
+                },
             };
-            surface
-                .layer
-                .set_margin(margins.0, margins.1, margins.2, margins.3);
+            surface.set_margins(margins);
             surface.layer.commit();
 
             let size = match position.anchor {

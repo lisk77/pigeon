@@ -219,6 +219,12 @@ impl PigeonConfig {
                 "sound.volume must be a finite number greater than or equal to zero".into(),
             ));
         }
+        if self.notification.animation.enabled && self.notification.animation.duration == 0 {
+            return Err(config::ConfigError::Message(
+                "notification.animation.duration must be greater than zero when animation is enabled"
+                    .into(),
+            ));
+        }
 
         if !self.profiles.contains_key(&self.profile.active) {
             return Err(config::ConfigError::Message(format!(
