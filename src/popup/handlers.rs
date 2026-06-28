@@ -55,9 +55,9 @@ impl CompositorHandler for Popup {
             .flatten()
             .find(|surface| surface.layer.wl_surface() == wl_surface)
         {
-            let complete = surface.animation_frame(time);
-            if complete || surface.animating() {
-                surface.request_animation_frame(qh);
+            let complete = surface.transition_frame(time);
+            if complete || surface.transitioning() {
+                surface.request_transition_frame(qh);
             }
             return;
         }
@@ -69,13 +69,13 @@ impl CompositorHandler for Popup {
         {
             let complete = {
                 let surface = &mut self.exiting_surfaces[index];
-                surface.animation_frame(time)
+                surface.transition_frame(time)
             };
             if complete {
                 let surface = self.exiting_surfaces.remove(index);
                 self.retire_surface(surface);
             } else {
-                self.exiting_surfaces[index].request_animation_frame(qh);
+                self.exiting_surfaces[index].request_transition_frame(qh);
             }
         }
     }
@@ -169,7 +169,7 @@ impl LayerShellHandler for Popup {
                 } else {
                     None
                 };
-                surface.request_animation_frame(qh);
+                surface.request_transition_frame(qh);
                 frame
             };
             if let Some(frame) = retired_frame {

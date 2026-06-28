@@ -219,11 +219,24 @@ impl PigeonConfig {
                 "sound.volume must be a finite number greater than or equal to zero".into(),
             ));
         }
-        if self.notification.animation.enabled && self.notification.animation.duration == 0 {
-            return Err(config::ConfigError::Message(
-                "notification.animation.duration must be greater than zero when animation is enabled"
-                    .into(),
-            ));
+        if self.notification.animation.enabled {
+            let animation = &self.notification.animation;
+            if animation.enter.effect != notification::AnimationEffect::None
+                && animation.enter.duration == 0
+            {
+                return Err(config::ConfigError::Message(
+                    "notification.animation.enter.duration must be greater than zero when enter animation is enabled"
+                        .into(),
+                ));
+            }
+            if animation.exit.effect != notification::AnimationEffect::None
+                && animation.exit.duration == 0
+            {
+                return Err(config::ConfigError::Message(
+                    "notification.animation.exit.duration must be greater than zero when exit animation is enabled"
+                        .into(),
+                ));
+            }
         }
 
         if !self.profiles.contains_key(&self.profile.active) {

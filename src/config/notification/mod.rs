@@ -11,7 +11,7 @@ mod template;
 mod text;
 mod thumbnail;
 
-pub use animation::AnimationConfig;
+pub use animation::{AnimationConfig, AnimationDirection, AnimationEffect, TransitionConfig};
 pub use overrides::NotificationStyleOverride;
 pub use position::{Anchor, PositionConfig};
 pub use progress::{ProgressAlignment, ProgressConfig, ProgressDirection, ProgressThickness};

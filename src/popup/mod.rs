@@ -27,7 +27,10 @@ use surface::{Frame, NotificationSurface};
 use tokio::sync::mpsc::UnboundedSender;
 
 use crate::{
-    config::{PigeonConfig, SharedConfig, notification::Anchor},
+    config::{
+        PigeonConfig, SharedConfig,
+        notification::{Anchor, AnimationDirection, AnimationEffect, TransitionConfig},
+    },
     daemon::{LifecycleCommand, SharedQueue},
 };
 
@@ -191,8 +194,10 @@ impl Popup {
         }
 
         let layout_ids: BTreeSet<u32> = layout.iter().map(|(id, _, _, _, _, _)| *id).collect();
-        let animation_duration = animation_duration(config);
-        self.retain_surfaces(qh, animation_duration, |id, surface| {
+        let transition_edge = transition_edge(config);
+        let enter_transition = enter_transition(config);
+        let exit_transition = exit_transition(config);
+        self.retain_surfaces(qh, exit_transition, |id, surface| {
             layout_ids.contains(&id) && outputs.iter().any(|output| output == &surface.output)
         });
 
@@ -216,6 +221,7 @@ impl Popup {
                     surface.generation = *generation;
                     surface.update_below_fullscreen(config.notification.below_fullscreen);
                     surface.update_position(&config.notification.position);
+                    surface.update_transition_edge(transition_edge);
                     surface.full_width = *full_width;
                     surface.full_height = *full_height;
                     if surface.width != *visible_width || surface.height != *visible_height {
@@ -258,11 +264,12 @@ impl Popup {
                         *full_height,
                         config.notification.below_fullscreen,
                         &config.notification.position,
+                        transition_edge,
                     ));
                     if let Some(surface) = surfaces.last_mut()
-                        && let Some(duration) = animation_duration
+                        && let Some(transition) = enter_transition
                     {
-                        surface.start_enter(duration);
+                        surface.start_enter(transition.duration, transition.edge);
                     }
                 }
             }
@@ -324,6 +331,7 @@ impl Popup {
             for surface in surfaces {
                 surface.update_below_fullscreen(config.notification.below_fullscreen);
                 surface.update_position(&config.notification.position);
+                surface.update_transition_edge(transition_edge(&config));
             }
         }
 
@@ -375,7 +383,7 @@ impl Popup {
     fn retain_surfaces(
         &mut self,
         qh: &QueueHandle<Self>,
-        animation_duration: Option<u32>,
+        exit_transition: Option<TransitionSpec>,
         keep: impl Fn(u32, &NotificationSurface) -> bool,
     ) {
         let mut retained = BTreeMap::new();
@@ -395,11 +403,11 @@ impl Popup {
         }
         self.surfaces = retained;
         for mut surface in removed {
-            if let Some(duration) = animation_duration
+            if let Some(transition) = exit_transition
                 && surface.configured
             {
-                surface.start_exit(duration);
-                surface.request_animation_frame(qh);
+                surface.start_exit(transition.duration, transition.edge);
+                surface.request_transition_frame(qh);
                 self.exiting_surfaces.push(surface);
             } else {
                 self.retire_surface(surface);
@@ -440,10 +448,40 @@ impl Popup {
     }
 }
 
-fn animation_duration(config: &PigeonConfig) -> Option<u32> {
+#[derive(Clone, Copy)]
+struct TransitionSpec {
+    duration: u32,
+    edge: surface::AnimatedEdge,
+}
+
+fn enter_transition(config: &PigeonConfig) -> Option<TransitionSpec> {
+    transition_spec(config, &config.notification.animation.enter)
+}
+
+fn exit_transition(config: &PigeonConfig) -> Option<TransitionSpec> {
+    transition_spec(config, &config.notification.animation.exit)
+}
+
+fn transition_spec(config: &PigeonConfig, transition: &TransitionConfig) -> Option<TransitionSpec> {
     if !config.notification.animation.enabled {
         return None;
     }
 
-    u32::try_from(config.notification.animation.duration).ok()
+    match transition.effect {
+        AnimationEffect::None => None,
+        AnimationEffect::Slide => Some(TransitionSpec {
+            duration: u32::try_from(transition.duration).ok()?,
+            edge: transition_edge(config),
+        }),
+    }
+}
+
+fn transition_edge(config: &PigeonConfig) -> surface::AnimatedEdge {
+    match config.notification.animation.direction {
+        AnimationDirection::Anchor => surface::edge_for(&config.notification.position.anchor),
+        AnimationDirection::Top => surface::AnimatedEdge::Top,
+        AnimationDirection::Right => surface::AnimatedEdge::Right,
+        AnimationDirection::Bottom => surface::AnimatedEdge::Bottom,
+        AnimationDirection::Left => surface::AnimatedEdge::Left,
+    }
 }

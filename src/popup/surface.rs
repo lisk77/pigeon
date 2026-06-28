@@ -37,8 +37,8 @@ pub(super) struct NotificationSurface {
     pub(super) full_height: u32,
     frame: Option<Frame>,
     margins: Margins,
-    edge: AnimatedEdge,
-    animation: Option<Transition>,
+    transition_edge: AnimatedEdge,
+    transition: Option<Transition>,
     frame_pending: bool,
 }
 
@@ -66,6 +66,7 @@ impl NotificationSurface {
         full_height: u32,
         below_fullscreen: bool,
         position: &PositionConfig,
+        transition_edge: AnimatedEdge,
     ) -> Self {
         let wl_surface = compositor.create_surface(qh);
         let layer = layer_shell.create_layer_surface(
@@ -91,15 +92,19 @@ impl NotificationSurface {
             full_height,
             frame: None,
             margins: Margins::default(),
-            edge: edge_for(&position.anchor),
-            animation: None,
+            transition_edge,
+            transition: None,
             frame_pending: false,
         }
     }
 
     pub(super) fn update_position(&mut self, position: &PositionConfig) {
         self.layer.set_anchor(anchor_for(&position.anchor));
-        self.edge = edge_for(&position.anchor);
+        self.apply_margins();
+    }
+
+    pub(super) fn update_transition_edge(&mut self, edge: AnimatedEdge) {
+        self.transition_edge = edge;
         self.apply_margins();
     }
 
@@ -160,27 +165,29 @@ impl NotificationSurface {
         })
     }
 
-    pub(super) fn start_enter(&mut self, duration: u32) {
+    pub(super) fn start_enter(&mut self, duration: u32, edge: AnimatedEdge) {
         if duration == 0 {
             return;
         }
-        self.animation = Some(Transition::new(TransitionPhase::Enter, duration));
+        self.transition_edge = edge;
+        self.transition = Some(Transition::new(TransitionPhase::Enter, duration));
     }
 
-    pub(super) fn start_exit(&mut self, duration: u32) {
+    pub(super) fn start_exit(&mut self, duration: u32, edge: AnimatedEdge) {
         if duration == 0 {
             return;
         }
-        self.animation = Some(Transition::new(TransitionPhase::Exit, duration));
+        self.transition_edge = edge;
+        self.transition = Some(Transition::new(TransitionPhase::Exit, duration));
         self.frame_pending = false;
     }
 
-    pub(super) fn animating(&self) -> bool {
-        self.animation.is_some()
+    pub(super) fn transitioning(&self) -> bool {
+        self.transition.is_some()
     }
 
-    pub(super) fn request_animation_frame(&mut self, qh: &QueueHandle<Popup>) {
-        if self.animation.is_none() || self.frame_pending {
+    pub(super) fn request_transition_frame(&mut self, qh: &QueueHandle<Popup>) {
+        if self.transition.is_none() || self.frame_pending {
             return;
         }
 
@@ -190,18 +197,18 @@ impl NotificationSurface {
         self.layer.commit();
     }
 
-    pub(super) fn animation_frame(&mut self, time: u32) -> bool {
+    pub(super) fn transition_frame(&mut self, time: u32) -> bool {
         self.frame_pending = false;
 
-        let Some(animation) = &mut self.animation else {
+        let Some(transition) = &mut self.transition else {
             return false;
         };
-        let complete = animation.update(time);
+        let complete = transition.update(time);
         self.apply_margins();
         self.layer.commit();
 
         if complete {
-            self.animation = None;
+            self.transition = None;
             return true;
         }
 
@@ -268,14 +275,14 @@ impl Transition {
 impl NotificationSurface {
     fn apply_margins(&self) {
         let mut margins = self.margins;
-        if let Some(animation) = self.animation {
+        if let Some(transition) = self.transition {
             let vertical_distance = self.height.max(self.full_height) as f32;
             let horizontal_distance = self.width.max(self.full_width) as f32;
-            let vertical_offset = (vertical_distance * animation.offset_progress()).round() as i32;
+            let vertical_offset = (vertical_distance * transition.offset_progress()).round() as i32;
             let horizontal_offset =
-                (horizontal_distance * animation.offset_progress()).round() as i32;
+                (horizontal_distance * transition.offset_progress()).round() as i32;
 
-            match self.edge {
+            match self.transition_edge {
                 AnimatedEdge::Top => margins.top += vertical_offset,
                 AnimatedEdge::Bottom => margins.bottom += vertical_offset,
                 AnimatedEdge::Left => margins.left += horizontal_offset,
@@ -289,7 +296,7 @@ impl NotificationSurface {
 }
 
 #[derive(Clone, Copy)]
-enum AnimatedEdge {
+pub(super) enum AnimatedEdge {
     Top,
     Right,
     Bottom,
@@ -325,7 +332,7 @@ fn anchor_for(anchor: &PositionAnchor) -> Anchor {
     }
 }
 
-fn edge_for(anchor: &PositionAnchor) -> AnimatedEdge {
+pub(super) fn edge_for(anchor: &PositionAnchor) -> AnimatedEdge {
     match anchor {
         PositionAnchor::Top | PositionAnchor::TopLeft | PositionAnchor::TopRight => {
             AnimatedEdge::Top
