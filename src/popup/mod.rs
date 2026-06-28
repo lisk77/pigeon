@@ -29,7 +29,9 @@ use tokio::sync::mpsc::UnboundedSender;
 use crate::{
     config::{
         PigeonConfig, SharedConfig,
-        notification::{Anchor, AnimationDirection, AnimationEffect, TransitionConfig},
+        notification::{
+            Anchor, AnimationDirection, AnimationEasing, AnimationEffect, TransitionConfig,
+        },
     },
     daemon::{LifecycleCommand, SharedQueue},
 };
@@ -274,6 +276,7 @@ impl Popup {
                             transition.duration,
                             transition.edge,
                             transition.effect,
+                            transition.easing,
                         );
                     }
                 }
@@ -422,7 +425,12 @@ impl Popup {
             if let Some(transition) = exit_transition
                 && surface.configured
             {
-                surface.start_exit(transition.duration, transition.edge, transition.effect);
+                surface.start_exit(
+                    transition.duration,
+                    transition.edge,
+                    transition.effect,
+                    transition.easing,
+                );
                 surface.request_transition_frame(qh);
                 self.exiting_surfaces.push(surface);
             } else {
@@ -469,6 +477,7 @@ struct TransitionSpec {
     duration: u32,
     edge: surface::AnimatedEdge,
     effect: AnimationEffect,
+    easing: AnimationEasing,
 }
 
 fn enter_transition(config: &PigeonConfig) -> Option<TransitionSpec> {
@@ -499,6 +508,7 @@ fn transition_spec(config: &PigeonConfig, transition: &TransitionConfig) -> Opti
             duration: u32::try_from(transition.duration).ok()?,
             edge: transition_edge(config, transition.direction),
             effect: transition.effect,
+            easing: transition.easing,
         }),
     }
 }

@@ -21,7 +21,9 @@ use super::render::{self, text::FontCtx};
 use crate::{
     config::{
         NotificationConfig, PigeonConfig,
-        notification::{Anchor as PositionAnchor, AnimationEffect, PositionConfig},
+        notification::{
+            Anchor as PositionAnchor, AnimationEasing, AnimationEffect, PositionConfig,
+        },
     },
     notification::Notification,
 };
@@ -237,12 +239,18 @@ impl NotificationSurface {
         duration: u32,
         edge: AnimatedEdge,
         effect: AnimationEffect,
+        easing: AnimationEasing,
     ) {
         if duration == 0 {
             return;
         }
         self.transition_edge = edge;
-        self.transition = Some(Transition::new(TransitionPhase::Enter, duration, effect));
+        self.transition = Some(Transition::new(
+            TransitionPhase::Enter,
+            duration,
+            effect,
+            easing,
+        ));
     }
 
     pub(super) fn start_exit(
@@ -250,12 +258,18 @@ impl NotificationSurface {
         duration: u32,
         edge: AnimatedEdge,
         effect: AnimationEffect,
+        easing: AnimationEasing,
     ) {
         if duration == 0 {
             return;
         }
         self.transition_edge = edge;
-        self.transition = Some(Transition::new(TransitionPhase::Exit, duration, effect));
+        self.transition = Some(Transition::new(
+            TransitionPhase::Exit,
+            duration,
+            effect,
+            easing,
+        ));
         self.frame_pending = false;
     }
 
@@ -318,6 +332,7 @@ impl NotificationSurface {
                 },
                 duration.expect("transition duration checked above"),
                 AnimationEffect::None,
+                AnimationEasing::Default,
             ));
         }
         self.apply_margins();
@@ -340,6 +355,7 @@ pub(super) struct Margins {
 struct Transition {
     phase: TransitionPhase,
     effect: AnimationEffect,
+    easing: AnimationEasing,
     duration: u32,
     started_at: Option<u32>,
     progress: f32,
@@ -353,10 +369,16 @@ enum TransitionPhase {
 }
 
 impl Transition {
-    fn new(phase: TransitionPhase, duration: u32, effect: AnimationEffect) -> Self {
+    fn new(
+        phase: TransitionPhase,
+        duration: u32,
+        effect: AnimationEffect,
+        easing: AnimationEasing,
+    ) -> Self {
         Self {
             phase,
             effect,
+            easing,
             duration,
             started_at: None,
             progress: 0.0,
@@ -379,16 +401,16 @@ impl Transition {
         }
 
         match self.phase {
-            TransitionPhase::Enter => ease_out_cubic(self.progress) - 1.0,
-            TransitionPhase::Exit => -ease_in_cubic(self.progress),
+            TransitionPhase::Enter => self.eased_progress() - 1.0,
+            TransitionPhase::Exit => -self.eased_progress(),
             TransitionPhase::Move { .. } => 0.0,
         }
     }
 
     fn visual_progress(&self) -> Option<f32> {
         let progress = match self.phase {
-            TransitionPhase::Enter => ease_out_cubic(self.progress),
-            TransitionPhase::Exit => 1.0 - ease_in_cubic(self.progress),
+            TransitionPhase::Enter => self.eased_progress(),
+            TransitionPhase::Exit => 1.0 - self.eased_progress(),
             TransitionPhase::Move { .. } => return None,
         };
 
@@ -398,6 +420,21 @@ impl Transition {
             }
             AnimationEffect::None | AnimationEffect::Slide => None,
         }
+    }
+
+    fn eased_progress(&self) -> f32 {
+        apply_easing(
+            self.progress,
+            match self.easing {
+                AnimationEasing::Default => match self.phase {
+                    TransitionPhase::Enter | TransitionPhase::Move { .. } => {
+                        AnimationEasing::EaseOut
+                    }
+                    TransitionPhase::Exit => AnimationEasing::EaseIn,
+                },
+                easing => easing,
+            },
+        )
     }
 }
 
@@ -412,7 +449,7 @@ impl NotificationSurface {
         let mut margins = self.margins;
         if let Some(transition) = self.transition {
             if let TransitionPhase::Move { from, to } = transition.phase {
-                return from.lerp(to, ease_out_cubic(transition.progress));
+                return from.lerp(to, transition.eased_progress());
             }
 
             let vertical_distance = self.height.max(self.full_height) as f32;
@@ -462,6 +499,25 @@ fn ease_out_cubic(progress: f32) -> f32 {
 
 fn ease_in_cubic(progress: f32) -> f32 {
     progress.powi(3)
+}
+
+fn ease_in_out_cubic(progress: f32) -> f32 {
+    if progress < 0.5 {
+        4.0 * progress.powi(3)
+    } else {
+        1.0 - (-2.0 * progress + 2.0).powi(3) / 2.0
+    }
+}
+
+fn apply_easing(progress: f32, easing: AnimationEasing) -> f32 {
+    let progress = progress.clamp(0.0, 1.0);
+    match easing {
+        AnimationEasing::Default => progress,
+        AnimationEasing::Linear => progress,
+        AnimationEasing::EaseIn => ease_in_cubic(progress),
+        AnimationEasing::EaseOut => ease_out_cubic(progress),
+        AnimationEasing::EaseInOut => ease_in_out_cubic(progress),
+    }
 }
 
 fn copy_with_opacity(source: &[u8], target: &mut [u8], opacity: f32) {
