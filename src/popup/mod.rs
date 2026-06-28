@@ -197,6 +197,7 @@ impl Popup {
         let transition_edge = transition_edge(config);
         let enter_transition = enter_transition(config);
         let exit_transition = exit_transition(config);
+        let layout_transition_duration = layout_transition_duration(config);
         self.retain_surfaces(qh, exit_transition, |id, surface| {
             layout_ids.contains(&id) && outputs.iter().any(|output| output == &surface.output)
         });
@@ -279,7 +280,14 @@ impl Popup {
         self.retired_frames.extend(retired_frames);
 
         let ordered_ids = layout.iter().map(|(id, ..)| *id).collect::<Vec<_>>();
-        surface::restack(&mut self.surfaces, &ordered_ids, config);
+        surface::restack(
+            qh,
+            &mut self.surfaces,
+            &self.exiting_surfaces,
+            &ordered_ids,
+            config,
+            layout_transition_duration,
+        );
         for (id, generation, ..) in layout {
             let _ = self
                 .lifecycle_sender
@@ -464,6 +472,12 @@ fn enter_transition(config: &PigeonConfig) -> Option<TransitionSpec> {
 
 fn exit_transition(config: &PigeonConfig) -> Option<TransitionSpec> {
     transition_spec(config, &config.notification.animation.exit)
+}
+
+fn layout_transition_duration(config: &PigeonConfig) -> Option<u32> {
+    exit_transition(config)
+        .or_else(|| enter_transition(config))
+        .map(|transition| transition.duration)
 }
 
 fn transition_spec(config: &PigeonConfig, transition: &TransitionConfig) -> Option<TransitionSpec> {

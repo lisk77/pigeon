@@ -203,20 +203,44 @@ impl NotificationSurface {
         let Some(transition) = &mut self.transition else {
             return false;
         };
+        let phase = transition.phase;
         let complete = transition.update(time);
         self.apply_margins();
         self.layer.commit();
 
         if complete {
             self.transition = None;
+            if matches!(phase, TransitionPhase::Move { .. }) {
+                self.apply_margins();
+                self.layer.commit();
+            }
             return true;
         }
 
         false
     }
 
-    pub(super) fn set_margins(&mut self, margins: Margins) {
+    pub(super) fn set_margins(&mut self, margins: Margins, transition_duration: Option<u32>) {
+        let displayed_margins = self.displayed_margins();
+        let duration = transition_duration.filter(|duration| *duration > 0);
+        let transition_can_move = self.transition.is_none()
+            || self
+                .transition
+                .is_some_and(|transition| matches!(transition.phase, TransitionPhase::Move { .. }));
+        let should_transition = self.configured
+            && transition_can_move
+            && displayed_margins != margins
+            && duration.is_some();
         self.margins = margins;
+        if should_transition {
+            self.transition = Some(Transition::new(
+                TransitionPhase::Move {
+                    from: displayed_margins,
+                    to: margins,
+                },
+                duration.expect("transition duration checked above"),
+            ));
+        }
         self.apply_margins();
     }
 
@@ -225,7 +249,7 @@ impl NotificationSurface {
     }
 }
 
-#[derive(Clone, Copy, Default)]
+#[derive(Clone, Copy, Default, PartialEq, Eq)]
 pub(super) struct Margins {
     pub(super) top: i32,
     pub(super) right: i32,
@@ -245,6 +269,7 @@ struct Transition {
 enum TransitionPhase {
     Enter,
     Exit,
+    Move { from: Margins, to: Margins },
 }
 
 impl Transition {
@@ -268,14 +293,25 @@ impl Transition {
         match self.phase {
             TransitionPhase::Enter => ease_out_cubic(self.progress) - 1.0,
             TransitionPhase::Exit => -ease_in_cubic(self.progress),
+            TransitionPhase::Move { .. } => 0.0,
         }
     }
 }
 
 impl NotificationSurface {
     fn apply_margins(&self) {
+        let margins = self.displayed_margins();
+        self.layer
+            .set_margin(margins.top, margins.right, margins.bottom, margins.left);
+    }
+
+    fn displayed_margins(&self) -> Margins {
         let mut margins = self.margins;
         if let Some(transition) = self.transition {
+            if let TransitionPhase::Move { from, to } = transition.phase {
+                return from.lerp(to, ease_out_cubic(transition.progress));
+            }
+
             let vertical_distance = self.height.max(self.full_height) as f32;
             let horizontal_distance = self.width.max(self.full_width) as f32;
             let vertical_offset = (vertical_distance * transition.offset_progress()).round() as i32;
@@ -290,9 +326,23 @@ impl NotificationSurface {
             }
         }
 
-        self.layer
-            .set_margin(margins.top, margins.right, margins.bottom, margins.left);
+        margins
     }
+}
+
+impl Margins {
+    fn lerp(self, to: Self, progress: f32) -> Self {
+        Self {
+            top: lerp_i32(self.top, to.top, progress),
+            right: lerp_i32(self.right, to.right, progress),
+            bottom: lerp_i32(self.bottom, to.bottom, progress),
+            left: lerp_i32(self.left, to.left, progress),
+        }
+    }
+}
+
+fn lerp_i32(from: i32, to: i32, progress: f32) -> i32 {
+    (from as f32 + (to - from) as f32 * progress).round() as i32
 }
 
 #[derive(Clone, Copy)]
@@ -346,13 +396,21 @@ pub(super) fn edge_for(anchor: &PositionAnchor) -> AnimatedEdge {
 }
 
 pub(super) fn restack(
+    qh: &QueueHandle<Popup>,
     surfaces: &mut BTreeMap<u32, Vec<NotificationSurface>>,
+    exiting_surfaces: &[NotificationSurface],
     ordered_ids: &[u32],
     config: &PigeonConfig,
+    transition_duration: Option<u32>,
 ) {
     let position = &config.notification.position;
     let mut outputs = Vec::new();
     for surface in surfaces.values().flatten() {
+        if !outputs.iter().any(|output| output == &surface.output) {
+            outputs.push(surface.output.clone());
+        }
+    }
+    for surface in exiting_surfaces {
         if !outputs.iter().any(|output| output == &surface.output) {
             outputs.push(surface.output.clone());
         }
@@ -369,6 +427,17 @@ pub(super) fn restack(
             PositionAnchor::Left => position.left_margin as i32,
             PositionAnchor::Right => position.right_margin as i32,
         };
+        let mut reserved = exiting_surfaces
+            .iter()
+            .filter(|surface| surface.output == output)
+            .map(|surface| {
+                (
+                    surface.stack_offset(position.anchor),
+                    surface.stack_size(position.anchor),
+                )
+            })
+            .collect::<Vec<_>>();
+        reserved.sort_by_key(|(offset, _)| *offset);
 
         for id in ordered_ids {
             let Some(notification_surfaces) = surfaces.get_mut(id) else {
@@ -381,6 +450,12 @@ pub(super) fn restack(
                 continue;
             };
 
+            offset = skip_reserved_offset(
+                offset,
+                surface.stack_size(position.anchor),
+                position.notification_gap as i32,
+                &reserved,
+            );
             let margins = match position.anchor {
                 PositionAnchor::Top => Margins {
                     top: offset,
@@ -419,14 +494,48 @@ pub(super) fn restack(
                     ..Margins::default()
                 },
             };
-            surface.set_margins(margins);
+            surface.set_margins(margins, transition_duration);
+            surface.request_transition_frame(qh);
             surface.layer.commit();
 
-            let size = match position.anchor {
-                PositionAnchor::Left | PositionAnchor::Right => surface.width,
-                _ => surface.height,
-            } as i32;
-            offset += size + position.notification_gap as i32;
+            offset += surface.stack_size(position.anchor) + position.notification_gap as i32;
         }
     }
+}
+
+impl NotificationSurface {
+    fn stack_offset(&self, anchor: PositionAnchor) -> i32 {
+        match anchor {
+            PositionAnchor::Top | PositionAnchor::TopLeft | PositionAnchor::TopRight => {
+                self.margins.top
+            }
+            PositionAnchor::Bottom | PositionAnchor::BottomLeft | PositionAnchor::BottomRight => {
+                self.margins.bottom
+            }
+            PositionAnchor::Left => self.margins.left,
+            PositionAnchor::Right => self.margins.right,
+        }
+    }
+
+    fn stack_size(&self, anchor: PositionAnchor) -> i32 {
+        (match anchor {
+            PositionAnchor::Left | PositionAnchor::Right => self.width,
+            _ => self.height,
+        }) as i32
+    }
+}
+
+fn skip_reserved_offset(mut offset: i32, size: i32, gap: i32, reserved: &[(i32, i32)]) -> i32 {
+    for &(reserved_offset, reserved_size) in reserved {
+        if ranges_overlap(offset, size, reserved_offset, reserved_size) {
+            offset = reserved_offset + reserved_size + gap;
+        }
+    }
+    offset
+}
+
+fn ranges_overlap(offset: i32, size: i32, reserved_offset: i32, reserved_size: i32) -> bool {
+    let end = offset + size;
+    let reserved_end = reserved_offset + reserved_size;
+    offset < reserved_end && reserved_offset < end
 }

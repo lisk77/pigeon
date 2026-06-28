@@ -74,6 +74,9 @@ impl CompositorHandler for Popup {
             if complete {
                 let surface = self.exiting_surfaces.remove(index);
                 self.retire_surface(surface);
+                let config_handle = std::sync::Arc::clone(&self.config);
+                let config = config_handle.read().expect("config lock poisoned");
+                self.reflow(qh, &config, false);
             } else {
                 self.exiting_surfaces[index].request_transition_frame(qh);
             }
@@ -175,7 +178,14 @@ impl LayerShellHandler for Popup {
             if let Some(frame) = retired_frame {
                 self.retired_frames.push(frame);
             }
-            surface::restack(&mut self.surfaces, &ordered_ids, &config);
+            surface::restack(
+                qh,
+                &mut self.surfaces,
+                &self.exiting_surfaces,
+                &ordered_ids,
+                &config,
+                super::layout_transition_duration(&config),
+            );
         }
     }
 }
